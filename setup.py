@@ -42,6 +42,11 @@ setup(
     include_package_data=True,
     install_requires=[
         "fastapi>=0.115.5",
+        "numpy>=1.24",
+        "opencv-python-headless>=4.8",
+        "Pillow>=10.0",
+        "PyMuPDF>=1.24.0",
+        "PyPDF2>=3.0.0",
         "uvicorn>=0.32.1",
         "python-multipart>=0.0.20",
     ],

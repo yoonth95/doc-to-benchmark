@@ -35,42 +35,42 @@ class UploadStorage:
     async def save_files(self, files: Iterable[UploadFile]) -> List[UploadMetadata]:
         saved_items: List[UploadMetadata] = []
         for upload in files:
-            metadata = await self._persist_file(upload)
+            data = await upload.read()
+            metadata = await self.save_bytes(data=data, original_name=upload.filename or "unnamed")
             saved_items.append(metadata)
-        async with self._lock:
-            existing = await self._read_metadata()
-            existing.extend(item.model_dump(mode="json") for item in saved_items)
-            await self._write_metadata(existing)
+            await upload.close()
         return saved_items
 
-    async def _persist_file(self, upload: UploadFile) -> UploadMetadata:
+    async def save_bytes(self, data: bytes, original_name: str, *, extension: str | None = None) -> UploadMetadata:
         await self.ensure_ready()
-        original_name = upload.filename or "unnamed"
-        suffix = Path(original_name).suffix.lower()
-        extension = suffix[1:] if suffix.startswith(".") else suffix
-        stored_name = f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid4().hex}{suffix}"
-        destination = self.base_directory / stored_name
 
-        size_bytes = await self._write_upload_file(destination, upload)
+        suffix = Path(original_name).suffix
+        if extension:
+            suffix = f".{extension.lower().lstrip('.')}"
+        suffix = suffix.lower()
+        extension_value = suffix[1:] if suffix.startswith(".") else suffix
+
+        timestamp = datetime.now(timezone.utc)
+        stored_name = f"{timestamp.strftime('%Y%m%d%H%M%S')}_{uuid4().hex}{suffix}"
+        destination = self.base_directory / stored_name
 
         metadata = UploadMetadata(
             id=str(uuid4()),
             original_name=original_name,
             stored_name=stored_name,
-            size_bytes=size_bytes,
-            extension=extension,
-            uploaded_at=datetime.now(timezone.utc),
+            size_bytes=len(data),
+            extension=extension_value,
+            uploaded_at=timestamp,
         )
-        return metadata
 
-    async def _write_upload_file(self, destination: Path, upload: UploadFile) -> int:
         async with self._lock:
             await asyncio.to_thread(destination.parent.mkdir, parents=True, exist_ok=True)
-        data = await upload.read()
-        size = len(data)
-        await asyncio.to_thread(destination.write_bytes, data)
-        await upload.close()
-        return size
+            await asyncio.to_thread(destination.write_bytes, data)
+            existing = await self._read_metadata()
+            existing.append(metadata.model_dump(mode="json"))
+            await self._write_metadata(existing)
+
+        return metadata
 
     async def _read_metadata(self) -> list[dict]:
         if not self.metadata_path.exists():

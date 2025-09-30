@@ -17,6 +17,7 @@ type ApiError = {
 };
 
 const API_BASE = '/api/uploads';
+const PDF_PROCESS_ENDPOINT = '/api/uploads/pdf/process';
 
 const formatBytes = (size: number): string => {
   if (size === 0) return '0 B';
@@ -30,6 +31,61 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
   timeStyle: 'short',
 });
+
+const isPdfFile = (file: File): boolean => {
+  const mime = file.type?.toLowerCase();
+  return mime === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+};
+
+const parseDispositionFilename = (header: string | null): string | null => {
+  if (!header) return null;
+  const filenameStarMatch = header.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+  if (filenameStarMatch) {
+    try {
+      return decodeURIComponent(filenameStarMatch[1]);
+    } catch (error) {
+      console.warn('Failed to decode filename* header', error);
+    }
+  }
+  const filenameMatch = header.match(/filename="?([^";]+)"?/i);
+  return filenameMatch ? filenameMatch[1] : null;
+};
+
+const buildProcessedFilename = (original: string): string => {
+  const base = original.replace(/\.pdf$/i, '') || 'document';
+  return `${base}_processed.pdf`;
+};
+
+const triggerDownload = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+const parseErrorResponse = async (response: Response, fallback: string): Promise<string> => {
+  const contentType = response.headers.get('content-type') ?? '';
+  if (contentType.includes('application/json')) {
+    try {
+      const body: ApiError = await response.json();
+      if (body.detail) return body.detail;
+    } catch (error) {
+      console.warn('Failed to parse error response as JSON', error);
+    }
+  } else {
+    try {
+      const text = await response.text();
+      if (text) return text;
+    } catch (error) {
+      console.warn('Failed to read error response as text', error);
+    }
+  }
+  return fallback;
+};
 
 function App() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -96,19 +152,44 @@ function App() {
     if (selectedFiles.length === 0) return;
     setUploading(true);
     try {
-      const formData = new FormData();
-      selectedFiles.forEach((file) => {
-        formData.append('files', file);
-      });
+      setErrorMessage(null);
+      const pdfFiles = selectedFiles.filter(isPdfFile);
+      const otherFiles = selectedFiles.filter((file) => !isPdfFile(file));
 
-      const response = await fetch(API_BASE, {
-        method: 'POST',
-        body: formData,
-      });
+      for (const pdf of pdfFiles) {
+        const formData = new FormData();
+        formData.append('file', pdf);
+        const response = await fetch(PDF_PROCESS_ENDPOINT, {
+          method: 'POST',
+          body: formData,
+        });
 
-      if (!response.ok) {
-        const error: ApiError = await response.json().catch(() => ({}));
-        throw new Error(error.detail ?? '업로드 중 오류가 발생했습니다.');
+        if (!response.ok) {
+          const message = await parseErrorResponse(response, 'PDF 처리 중 오류가 발생했습니다.');
+          throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const header = response.headers.get('Content-Disposition');
+        const downloadName = parseDispositionFilename(header) ?? buildProcessedFilename(pdf.name);
+        triggerDownload(blob, downloadName);
+      }
+
+      if (otherFiles.length > 0) {
+        const formData = new FormData();
+        otherFiles.forEach((file) => {
+          formData.append('files', file);
+        });
+
+        const response = await fetch(API_BASE, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const message = await parseErrorResponse(response, '업로드 중 오류가 발생했습니다.');
+          throw new Error(message);
+        }
       }
 
       setSelectedFiles([]);
