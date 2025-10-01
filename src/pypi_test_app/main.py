@@ -28,7 +28,7 @@ class SPAStaticFiles(StaticFiles):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="PyPI Upload Demo", version="0.1.3")
+    app = FastAPI(title="PyPI Upload Demo", version="0.1.4")
 
     app.add_middleware(
         CORSMiddleware,

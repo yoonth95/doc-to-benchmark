@@ -31,7 +31,7 @@ def read_readme() -> str:
 
 setup(
     name="pypi-upload-demo",
-    version="0.1.3",
+    version="0.1.4",
     description="FastAPI + React file upload demo packaged for PyPI distribution",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
