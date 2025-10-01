@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileText, Bot, FileBarChart, Search } from "lucide-react";
+import { FileText, Bot, FileBarChart, Search, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -75,15 +75,14 @@ const Analysis = () => {
 
   return (
     <div className="flex h-full w-full overflow-y-auto bg-gradient-to-br from-background via-accent/30 to-background">
-      <div className="container mx-auto flex-1 px-6 py-8">
+      <div className="container mx-auto flex-1 px-5 py-5">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold">문서 분석 현황</h2>
-            <p className="text-sm text-muted-foreground mt-1">추출된 질문과 답변, 신뢰도 데이터를 확인하세요.</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              추출된 질문과 답변, 신뢰도 데이터를 확인하세요.
+            </p>
           </div>
-          <Button onClick={() => navigate("/upload")} variant="outline">
-            새 문서 업로드
-          </Button>
         </div>
 
         <div className="mt-6 space-y-6">
@@ -101,7 +100,10 @@ const Analysis = () => {
                 <FileBarChart className="h-5 w-5 text-secondary" />
               </div>
               <div className="text-3xl font-bold">
-                {(mockData.reduce((acc, item) => acc + item.confidence, 0) / mockData.length).toFixed(1)}%
+                {(
+                  mockData.reduce((acc, item) => acc + item.confidence, 0) / mockData.length
+                ).toFixed(1)}
+                %
               </div>
             </div>
             <div className="rounded-xl border border-border bg-card p-6">
@@ -128,8 +130,6 @@ const Analysis = () => {
               <table className="w-full">
                 <thead className="border-b border-border bg-muted/50">
                   <tr>
-                    <th className="p-4 text-left text-sm font-semibold">질문</th>
-                    <th className="p-4 text-left text-sm font-semibold">답변</th>
                     <th className="p-4 text-left text-sm font-semibold">파일명</th>
                     <th className="p-4 text-center text-sm font-semibold">페이지</th>
                     <th className="p-4 text-center text-sm font-semibold">신뢰도</th>
@@ -145,16 +145,6 @@ const Analysis = () => {
                       }`}
                     >
                       <td className="max-w-xs p-4">
-                        <p className="truncate text-sm" title={item.question}>
-                          {item.question}
-                        </p>
-                      </td>
-                      <td className="max-w-xs p-4">
-                        <p className="truncate text-sm text-muted-foreground" title={item.targetAnswer}>
-                          {item.targetAnswer}
-                        </p>
-                      </td>
-                      <td className="max-w-xs p-4">
                         <p className="truncate text-sm text-muted-foreground" title={item.fileName}>
                           {item.fileName}
                         </p>
@@ -169,8 +159,8 @@ const Analysis = () => {
                             item.confidence >= 90
                               ? "border-success text-success"
                               : item.confidence >= 80
-                              ? "border-secondary text-secondary"
-                              : "border-muted-foreground text-muted-foreground"
+                                ? "border-secondary text-secondary"
+                                : "border-muted-foreground text-muted-foreground"
                           }
                         >
                           {item.confidence}%
@@ -178,6 +168,19 @@ const Analysis = () => {
                       </td>
                       <td className="p-4">
                         <div className="flex items-center justify-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              navigate(`/ocr-result/${item.id}`, {
+                                state: { fileName: item.fileName },
+                              })
+                            }
+                            className="hover:border-accent hover:text-accent-foreground"
+                          >
+                            <Sparkles className="mr-1 h-4 w-4" />
+                            OCR 결과
+                          </Button>
                           <Button
                             size="sm"
                             variant="outline"

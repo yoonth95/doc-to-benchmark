@@ -3,28 +3,24 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const navigation = [
-  { label: "홈", to: "/" },
-  { label: "업로드", to: "/upload" },
-  { label: "분석", to: "/analysis" },
-];
+const navigation = [{ label: "분석현황", to: "/analysis" }];
 
 const Header = () => {
   const navigate = useNavigate();
 
   return (
     <header className="border-b border-border/40 bg-card/60 backdrop-blur-md">
-      <div className="container mx-auto flex items-center justify-between px-6 py-4">
+      <div className="container mx-auto flex items-center justify-between px-5 py-5">
         <button
           type="button"
           onClick={() => navigate("/")}
-          className="flex items-center gap-2"
+          className="flex items-center gap-2 w-42"
         >
           <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-secondary">
             <FileText className="h-6 w-6 text-primary-foreground" />
           </span>
           <span className="text-2xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-            DocuAgent
+            DocAgent
           </span>
         </button>
 
@@ -46,13 +42,15 @@ const Header = () => {
           ))}
         </nav>
 
-        <Button
-          size="sm"
-          className="bg-gradient-to-r from-primary to-secondary text-primary-foreground hover:opacity-90"
-          onClick={() => navigate("/upload")}
-        >
-          문서 업로드
-        </Button>
+        <div className="  w-42 flex items-center justify-end">
+          <Button
+            size="sm"
+            className="bg-gradient-to-r from-primary to-secondary text-primary-foreground hover:opacity-90"
+            onClick={() => navigate("/upload")}
+          >
+            문서 업로드
+          </Button>
+        </div>
       </div>
     </header>
   );

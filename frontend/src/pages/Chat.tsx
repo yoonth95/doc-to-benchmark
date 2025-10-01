@@ -46,7 +46,7 @@ const generatedQAs: GeneratedQA[] = [
 
 const Chat = () => {
   const navigate = useNavigate();
-  const { chatRoomId } = useParams<{ chatRoomId: string }>();
+  const { itemId } = useParams<{ itemId: string }>();
   const [messages, setMessages] = useState<Message[]>(defaultMessages);
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -105,14 +105,14 @@ const Chat = () => {
 
   return (
     <div className="flex h-full w-full overflow-y-auto bg-gradient-to-br from-background via-accent/30 to-background">
-      <div className="container mx-auto flex-1 px-6 py-8">
+      <div className="container mx-auto flex-1 px-5 py-5">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate("/analysis")}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
             <h2 className="text-2xl font-bold">AI 챗봇</h2>
-            <p className="text-sm text-muted-foreground">문서 ID: {chatRoomId}</p>
+            <p className="text-sm text-muted-foreground">문서 ID: {itemId}</p>
           </div>
         </div>
 
@@ -160,7 +160,9 @@ const Chat = () => {
                     <p className="text-sm leading-relaxed">{message.content}</p>
                     <p
                       className={`mt-1 text-xs ${
-                        message.role === "user" ? "text-primary-foreground/70" : "text-muted-foreground"
+                        message.role === "user"
+                          ? "text-primary-foreground/70"
+                          : "text-muted-foreground"
                       }`}
                     >
                       {message.timestamp.toLocaleTimeString("ko-KR", {
