@@ -8,6 +8,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import router
+from .database import build_database_url, create_engine, create_sessionmaker, initialize_database
+from .seed_data import seed_if_empty
 from .storage import UploadStorage
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -38,11 +40,25 @@ def create_app() -> FastAPI:
     storage = UploadStorage()
     app.state.storage = storage
 
-    @app.on_event("startup")
-    async def _ensure_storage() -> None:
-        await storage.ensure_ready()
+    database_url = build_database_url(storage.base_directory.parent)
+    engine = create_engine(database_url)
+    session_factory = create_sessionmaker(engine)
+    app.state.db_engine = engine
+    app.state.db_sessionmaker = session_factory
 
-    app.include_router(router, prefix="/api", tags=["uploads"])
+    @app.on_event("startup")
+    async def _startup() -> None:
+        await storage.ensure_ready()
+        await initialize_database(engine)
+        async with session_factory() as session:
+            await seed_if_empty(session)
+            await session.commit()
+
+    @app.on_event("shutdown")
+    async def _shutdown() -> None:
+        await engine.dispose()
+
+    app.include_router(router, prefix="/api", tags=["documents"])
 
     if STATIC_DIR.exists():
         app.mount("/", SPAStaticFiles(directory=STATIC_DIR, html=True), name="spa")

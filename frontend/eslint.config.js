@@ -29,6 +29,7 @@ export default defineConfig([
     },
     rules: {
       ...prettierPlugin.configs.recommended.rules,
+      "@typescript-eslint/no-explicit-any": "off",
     },
   },
   eslintConfigPrettier,

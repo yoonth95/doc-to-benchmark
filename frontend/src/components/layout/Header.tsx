@@ -1,12 +1,15 @@
 import { FileText } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useApiKey } from "@/hooks/use-api-key";
 
 const navigation = [{ label: "분석현황", to: "/analysis" }];
 
 const Header = () => {
   const navigate = useNavigate();
+  const { apiKey, setApiKey } = useApiKey();
 
   return (
     <header className="border-b border-border/40 bg-card/60 backdrop-blur-md">
@@ -42,7 +45,15 @@ const Header = () => {
           ))}
         </nav>
 
-        <div className="  w-42 flex items-center justify-end">
+        <div className="flex w-full max-w-md items-center justify-end gap-3 md:w-auto">
+          <Input
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder="Solar Pro2 / Upstage API Key"
+            className="min-w-0 flex-1"
+            aria-label="OCR API Key"
+          />
           <Button
             size="sm"
             className="bg-gradient-to-r from-primary to-secondary text-primary-foreground hover:opacity-90"

@@ -47,6 +47,8 @@ setup(
         "Pillow>=10.0",
         "PyMuPDF>=1.24.0",
         "PyPDF2>=3.0.0",
+        "SQLAlchemy>=2.0",
+        "aiosqlite>=0.19",
         "uvicorn>=0.32.1",
         "python-multipart>=0.0.20",
     ],
