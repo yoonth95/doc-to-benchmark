@@ -12,8 +12,7 @@ from .models import (
     Document,
     DocumentStatus,
     DocumentPage,
-    OcrProvider,
-    OcrProviderEvaluation,
+    PageOcrResult,
     ReportAgentStatus,
 )
 
@@ -62,25 +61,31 @@ def _analysis_item(question: str, answer: str, page_number: int, confidence: flo
     )
 
 
-def _provider_eval(
-    provider: OcrProvider,
-    *,
-    judge: float,
-    time_ms: float,
-    latency: int,
-    notes: str,
-) -> OcrProviderEvaluation:
-    return OcrProviderEvaluation(
-        provider=provider,
-        llm_judge_score=judge,
-        time_per_page_ms=time_ms,
-        latency_ms=latency,
-        quality_notes=notes,
-    )
-
-
 def _agent_status(agent: str, status: AgentStatus, description: str) -> ReportAgentStatus:
     return ReportAgentStatus(agent_name=agent, status=status, description=description)
+
+
+def _page_result(
+    page_number: int,
+    provider: str,
+    *,
+    document: Document,
+    text: str,
+    validity: str | None,
+    judge: float | None,
+    time_ms: float | None,
+    remarks: str | None,
+) -> PageOcrResult:
+    return PageOcrResult(
+        document=document,
+        page_number=page_number,
+        provider=provider,
+        text_content=text,
+        validity=validity,
+        llm_judge_score=judge,
+        processing_time_ms=time_ms,
+        remarks=remarks,
+    )
 
 
 async def seed_if_empty(session: AsyncSession) -> None:
@@ -108,11 +113,12 @@ async def seed_if_empty(session: AsyncSession) -> None:
             "추가 검수가 필요한 항목은 Refiner 단계에서 플래그 처리되었습니다."
         ),
         mermaid_chart=MERMAID_CHART,
-        recommended_provider=OcrProvider.AZURE_DOCUMENT_INTELLIGENCE,
+        recommended_provider="azure_document_intelligence",
         recommendation_reason=(
             "Azure Document Intelligence가 가장 높은 LLM Judge 점수와 안정적인 처리 시간을 제공하며"
             " 페이지당 평균 처리 속도가 가장 빨라 전체 처리 시간을 단축합니다."
         ),
+        benchmark_url="https://huggingface.co/datasets/GAYOEN/DOC_RAG_FINANCE_BENCHMARK",
     )
 
     document_one.pages = [
@@ -143,6 +149,73 @@ async def seed_if_empty(session: AsyncSession) -> None:
         ),
     ]
 
+    page_one, page_two = document_one.pages
+    page_one.provider_results = [
+        _page_result(
+            1,
+            "google_vision",
+            document=document_one,
+            text=page_one.text_content,
+            validity="valid",
+            judge=93.4,
+            time_ms=820.0,
+            remarks="표와 그래프의 경계선이 비교적 정확하게 추출되었습니다.",
+        ),
+        _page_result(
+            1,
+            "aws_textract",
+            document=document_one,
+            text=page_one.text_content,
+            validity="needs_review",
+            judge=91.8,
+            time_ms=905.0,
+            remarks="머리글 텍스트 일부가 누락되어 후속 보정이 필요합니다.",
+        ),
+        _page_result(
+            1,
+            "azure_document_intelligence",
+            document=document_one,
+            text=page_one.text_content,
+            validity="valid",
+            judge=97.1,
+            time_ms=610.0,
+            remarks="머리글과 본문 구조가 가장 안정적으로 추출되었습니다.",
+        ),
+    ]
+
+    page_two.provider_results = [
+        _page_result(
+            2,
+            "google_vision",
+            document=document_one,
+            text=page_two.text_content,
+            validity="valid",
+            judge=92.0,
+            time_ms=860.0,
+            remarks="표 항목이 대부분 정확하지만 각주가 중복 추출되었습니다.",
+        ),
+        _page_result(
+            2,
+            "aws_textract",
+            document=document_one,
+            text=page_two.text_content,
+            validity="needs_review",
+            judge=90.4,
+            time_ms=940.0,
+            remarks="불릿 목록 구분선이 누락되어 정규화가 필요합니다.",
+        ),
+        _page_result(
+            2,
+            "azure_document_intelligence",
+            document=document_one,
+            text=page_two.text_content,
+            validity="valid",
+            judge=96.5,
+            time_ms=630.0,
+            remarks="표 구조와 불릿 목록을 정확하게 인식했습니다.",
+        ),
+    ]
+
     document_one.analysis_items = [
         _analysis_item(
             "22년 대비 23년에 시정구 지역안전관리위원회 개최 횟수는 어떻게 변화했나요?",
@@ -161,30 +234,6 @@ async def seed_if_empty(session: AsyncSession) -> None:
             "2023년 1월 이후 상황관리 회의는 통합관제센터 중심으로 운영되며 원격 참여 기능이 강화되었습니다.",
             page_number=13,
             confidence=88,
-        ),
-    ]
-
-    document_one.provider_evaluations = [
-        _provider_eval(
-            OcrProvider.GOOGLE_VISION,
-            judge=92.5,
-            time_ms=850.0,
-            latency=850,
-            notes="안정적인 텍스트 추출 성능과 표 인식이 균형 잡혀 있습니다.",
-        ),
-        _provider_eval(
-            OcrProvider.AWS_TEXTRACT,
-            judge=94.2,
-            time_ms=910.0,
-            latency=910,
-            notes="표 구조 인식이 뛰어나지만 초기 응답 시간이 다소 길었습니다.",
-        ),
-        _provider_eval(
-            OcrProvider.AZURE_DOCUMENT_INTELLIGENCE,
-            judge=96.8,
-            time_ms=620.0,
-            latency=620,
-            notes="LLM Judge 평가에서 가장 높은 점수를 기록했고 응답 지연도 가장 짧았습니다.",
         ),
     ]
 
@@ -211,6 +260,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
         processed_at=None,
         processing_summary="현재 Parsing 단계에서 표 추출 정합성 검증을 진행 중입니다.",
         mermaid_chart=MERMAID_CHART,
+        benchmark_url=None,
     )
 
     document_two.pages = [
@@ -221,6 +271,30 @@ async def seed_if_empty(session: AsyncSession) -> None:
             ),
             image_path=None,
         )
+    ]
+
+    (document_two_page_one,) = document_two.pages
+    document_two_page_one.provider_results = [
+        _page_result(
+            1,
+            "google_vision",
+            document=document_two,
+            text=document_two_page_one.text_content,
+            validity="valid",
+            judge=87.5,
+            time_ms=960.0,
+            remarks="서문 문단이 안정적으로 추출되었으나 제목 굵기 정보가 누락되었습니다.",
+        ),
+        _page_result(
+            1,
+            "aws_textract",
+            document=document_two,
+            text=document_two_page_one.text_content,
+            validity="degraded",
+            judge=85.0,
+            time_ms=1010.0,
+            remarks="줄 간격이 비정상적으로 넓게 추출되어 재처리 예정입니다.",
+        ),
     ]
 
     document_two.analysis_items = [
@@ -235,23 +309,6 @@ async def seed_if_empty(session: AsyncSession) -> None:
             "해운 인력 양성을 위해 선박 안전 모니터링 훈련과 국제 교류 프로그램이 확대됩니다.",
             page_number=12,
             confidence=87,
-        ),
-    ]
-
-    document_two.provider_evaluations = [
-        _provider_eval(
-            OcrProvider.GOOGLE_VISION,
-            judge=88.3,
-            time_ms=980.0,
-            latency=980,
-            notes="초기 분석 단계로 일부 페이지에서 재시도가 필요했습니다.",
-        ),
-        _provider_eval(
-            OcrProvider.AWS_TEXTRACT,
-            judge=86.0,
-            time_ms=1040.0,
-            latency=1040,
-            notes="표 추출 안정성이 검증 중입니다.",
         ),
     ]
 

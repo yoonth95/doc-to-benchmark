@@ -7,7 +7,16 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..models import AnalysisItem, Document, DocumentStatus, OcrProvider, OcrProviderEvaluation, ReportAgentStatus
+import os
+from pathlib import Path
+
+from ..models import (
+    AnalysisItem,
+    Document,
+    DocumentPage,
+    DocumentStatus,
+    ReportAgentStatus,
+)
 from ..schemas import (
     AnalysisItemOut,
     AnalysisListResponse,
@@ -15,6 +24,7 @@ from ..schemas import (
     DocumentListResponse,
     DocumentSummary,
     PagePreviewOut,
+    PageProviderResultOut,
     ProviderEvaluationOut,
     ProviderSelectionRequest,
     ReportAgentStatusOut,
@@ -23,25 +33,44 @@ from ..schemas import (
 from ..storage import UploadStorage
 from .dependencies import get_session, get_storage
 
+from anyio import to_thread
+from PyPDF2 import PdfReader
+from fastapi import HTTPException
+
+def _count_pdf_pages_sync(path: str) -> int:
+    with open(path, "rb") as f:
+        reader = PdfReader(f)
+        if reader.is_encrypted:
+            # 빈 비번 시도(일부 파일은 비번 없이 해제됨). 그래도 잠겨 있으면 거절
+            try:
+                reader.decrypt("")
+            except Exception:
+                pass
+            if reader.is_encrypted:
+                raise HTTPException(status_code=400, detail="비밀번호로 잠긴 PDF는 지원하지 않습니다.")
+        return len(reader.pages)
+
 router = APIRouter()
 
 
 _PROVIDER_DISPLAY_NAMES = {
-    OcrProvider.GOOGLE_VISION: "Google Vision API",
-    OcrProvider.AWS_TEXTRACT: "AWS Textract",
-    OcrProvider.AZURE_DOCUMENT_INTELLIGENCE: "Azure Document Intelligence",
+    "google_vision": "Google Vision API",
+    "aws_textract": "AWS Textract",
+    "azure_document_intelligence": "Azure Document Intelligence",
 }
 
 
-def _provider_display_name(provider: OcrProvider) -> str:
-    return _PROVIDER_DISPLAY_NAMES.get(provider, provider.value.replace("_", " ").title())
+def _provider_display_name(provider: str | None) -> str:
+    if not provider:
+        return "-"
+    return _PROVIDER_DISPLAY_NAMES.get(provider, provider.replace("_", " ").title())
 
 
 def _build_document_summary(
     document: Document,
     *,
     analysis_items_count: int,
-    recommended: OcrProvider | None = None,
+    recommended: str | None = None,
     recommendation_reason: str | None = None,
 ) -> DocumentSummary:
     return DocumentSummary(
@@ -62,69 +91,256 @@ def _build_document_summary(
             recommendation_reason if recommendation_reason is not None else document.recommendation_reason
         ),
         selected_provider=document.selected_provider,
+        benchmark_url=document.benchmark_url,
     )
 
 
-def _calculate_recommendation(document: Document) -> tuple[OcrProvider | None, str | None]:
-    if not document.provider_evaluations:
-        return document.recommended_provider, document.recommendation_reason
+def _aggregate_provider_metrics(document: Document) -> dict[str, dict[str, object]]:
+    stats: dict[str, dict[str, object]] = {}
+    for result in document.page_provider_results:
+        provider = (result.provider or "").strip()
+        if not provider:
+            continue
+        entry = stats.setdefault(
+            provider,
+            {
+                "scores": [],
+                "times": [],
+                "costs": [],
+                "total_cost": 0.0,
+                "pages": set(),
+                "remarks": [],
+            },
+        )
+        if result.llm_judge_score is not None:
+            entry["scores"].append(result.llm_judge_score)
+        if result.processing_time_ms is not None:
+            entry["times"].append(result.processing_time_ms)
+        if result.cost_per_page is not None:
+            entry["costs"].append(result.cost_per_page)
+            entry["total_cost"] = float(entry.get("total_cost", 0.0)) + float(result.cost_per_page)
+        entry["pages"].add(result.page_number)
+        if result.remarks:
+            entry["remarks"].append((result.page_number, result.remarks))
 
-    best_quality = max(document.provider_evaluations, key=lambda item: item.llm_judge_score, default=None)
-    fastest = min(document.provider_evaluations, key=lambda item: item.time_per_page_ms, default=None)
-    if best_quality is None or fastest is None:
-        return document.recommended_provider, document.recommendation_reason
+    aggregated: dict[str, dict[str, object]] = {}
+    for provider, entry in stats.items():
+        scores: list[float] = entry["scores"]  # type: ignore[assignment]
+        times: list[float] = entry["times"]  # type: ignore[assignment]
+        costs: list[float] = entry["costs"]  # type: ignore[assignment]
+        remarks: list[tuple[int, str]] = entry["remarks"]  # type: ignore[assignment]
+        aggregated[provider] = {
+            "average_score": (sum(scores) / len(scores)) if scores else None,
+            "average_time": (sum(times) / len(times)) if times else None,
+            "average_cost": (sum(costs) / len(costs)) if costs else None,
+            "total_cost": entry.get("total_cost") if costs else None,
+            "pages_count": len(entry["pages"]),  # type: ignore[arg-type]
+            "representative_remark": next(
+                (remark for _, remark in sorted(remarks, key=lambda item: item[0]) if remark),
+                None,
+            )
+            if remarks
+            else None,
+        }
+    return aggregated
 
-    # Score providers by combining normalised quality (higher is better) and latency (lower is better)
-    max_score = best_quality.llm_judge_score
-    min_score = min(item.llm_judge_score for item in document.provider_evaluations)
-    max_time = max(item.time_per_page_ms for item in document.provider_evaluations)
-    min_time = fastest.time_per_page_ms
 
-    def _composite_value(entry: OcrProviderEvaluation) -> float:
-        quality_range = max(max_score - min_score, 1e-6)
-        time_range = max(max_time - min_time, 1e-6)
-        quality_component = (entry.llm_judge_score - min_score) / quality_range
-        speed_component = (max_time - entry.time_per_page_ms) / time_range
-        # Weight quality slightly higher than speed to favour accuracy first
-        return (0.6 * quality_component) + (0.4 * speed_component)
-
-    ranked = sorted(document.provider_evaluations, key=_composite_value, reverse=True)
-    top_entry = ranked[0]
+def _calculate_recommendation(
+    document: Document,
+    metrics: dict[str, dict[str, object]] | None = None,
+) -> tuple[str | None, str | None]:
     if document.recommended_provider and document.recommendation_reason:
         return document.recommended_provider, document.recommendation_reason
 
-    reason = (
-        f"{_provider_display_name(top_entry.provider)}가 LLM-Judge 점수 {top_entry.llm_judge_score:.1f}와"
-        f" 페이지당 처리 시간 {top_entry.time_per_page_ms:.0f}ms로 가장 균형 잡힌 성능을 제공합니다."
-    )
-    return top_entry.provider, reason
+    metrics = metrics or _aggregate_provider_metrics(document)
+    if not metrics:
+        return document.recommended_provider, document.recommendation_reason
+
+    quality_values = [
+        value["average_score"]
+        for value in metrics.values()
+        if value.get("average_score") is not None
+    ]
+    time_values = [
+        value["average_time"]
+        for value in metrics.values()
+        if value.get("average_time") is not None
+    ]
+    cost_values = [
+        value["total_cost"]
+        for value in metrics.values()
+        if value.get("total_cost") is not None
+    ]
+
+    q_min = min(quality_values) if quality_values else 0.0
+    q_max = max(quality_values) if quality_values else 0.0
+    t_min = min(time_values) if time_values else 0.0
+    t_max = max(time_values) if time_values else 0.0
+    c_min = min(cost_values) if cost_values else 0.0
+    c_max = max(cost_values) if cost_values else 0.0
+
+    best_provider: str | None = None
+    best_score = float("-inf")
+    for provider, value in metrics.items():
+        score = float(value.get("average_score") or 0.0)
+        time_ms = float(value.get("average_time") or 0.0)
+        total_cost = float(value.get("total_cost") or 0.0)
+
+        if quality_values and q_max != q_min:
+            quality_component = (score - q_min) / (q_max - q_min)
+        elif quality_values:
+            quality_component = 1.0
+        else:
+            quality_component = 0.0
+
+        if time_values and t_max != t_min:
+            base_time = time_ms if value.get("average_time") is not None else t_max
+            time_component = (t_max - base_time) / (t_max - t_min)
+        elif time_values:
+            time_component = 1.0
+        else:
+            time_component = 0.0
+
+        if cost_values and c_max != c_min:
+            cost_component = (c_max - total_cost) / (c_max - c_min)
+        elif cost_values:
+            cost_component = 1.0
+        else:
+            cost_component = 0.0
+
+        composite = (0.5 * quality_component) + (0.3 * time_component) + (0.2 * cost_component)
+        if composite > best_score:
+            best_score = composite
+            best_provider = provider
+
+    if best_provider is None:
+        best_provider = next(iter(metrics))
+
+    stats = metrics[best_provider]
+    reason_parts: list[str] = []
+    if stats.get("average_score") is not None:
+        reason_parts.append(f"LLM-Judge 점수 {stats['average_score']:.1f}")
+    if stats.get("average_time") is not None:
+        reason_parts.append(f"페이지당 처리 시간 {stats['average_time']:.0f}ms")
+    if stats.get("total_cost") is not None:
+        reason_parts.append(f"총 비용 {stats['total_cost']:.2f}원")
+
+    display_name = _provider_display_name(best_provider)
+    if reason_parts:
+        reason = f"{display_name}가 {' 및 '.join(reason_parts)} 기준으로 가장 균형 잡힌 성능을 보였습니다."
+    else:
+        reason = f"{display_name}가 페이지별 OCR 평가에서 일관된 결과를 기록했습니다."
+
+    return best_provider, reason
 
 
-def _build_provider_evaluations(document: Document) -> List[ProviderEvaluationOut]:
-    if not document.provider_evaluations:
+def _build_provider_evaluations(
+    document: Document,
+    metrics: dict[str, dict[str, object]] | None = None,
+) -> List[ProviderEvaluationOut]:
+    metrics = metrics or _aggregate_provider_metrics(document)
+    if not metrics:
         return []
 
-    max_quality = max(item.llm_judge_score for item in document.provider_evaluations)
-    min_time = min(item.time_per_page_ms for item in document.provider_evaluations)
-    total_pages = document.pages_count or len(document.pages)
+    total_pages = document.pages_count or len(document.pages) or 1
+    quality_values = [
+        value["average_score"]
+        for value in metrics.values()
+        if value.get("average_score") is not None
+    ]
+    time_values = [
+        value["average_time"]
+        for value in metrics.values()
+        if value.get("average_time") is not None
+    ]
+    cost_totals = [
+        value["total_cost"]
+        for value in metrics.values()
+        if value.get("total_cost") is not None
+    ]
+    max_quality = max(quality_values) if quality_values else None
+    min_time = min(time_values) if time_values else None
+    min_cost = min(cost_totals) if cost_totals else None
 
     response: List[ProviderEvaluationOut] = []
-    for entry in document.provider_evaluations:
-        total_time_ms = entry.time_per_page_ms * total_pages
+    for provider, value in metrics.items():
+        score_raw = value.get("average_score")
+        time_raw = value.get("average_time")
+        cost_raw = value.get("average_cost")
+        total_cost_raw = value.get("total_cost")
+        llm_score = float(score_raw) if score_raw is not None else 0.0
+        time_per_page = float(time_raw) if time_raw is not None else 0.0
+        total_time_ms = time_per_page * total_pages if time_raw is not None else 0.0
+        cost_per_page = float(cost_raw) if cost_raw is not None else None
+        total_cost = float(total_cost_raw) if total_cost_raw is not None else (
+            (cost_per_page * total_pages) if (cost_per_page is not None and total_pages) else None
+        )
+
         response.append(
             ProviderEvaluationOut(
-                provider=entry.provider,
-                display_name=_provider_display_name(entry.provider),
-                llm_judge_score=entry.llm_judge_score,
-                time_per_page_ms=entry.time_per_page_ms,
+                provider=provider,
+                display_name=_provider_display_name(provider),
+                llm_judge_score=llm_score,
+                time_per_page_ms=time_per_page,
                 estimated_total_time_ms=total_time_ms,
-                quality_notes=entry.quality_notes,
-                latency_ms=entry.latency_ms,
-                is_best_quality=entry.llm_judge_score == max_quality,
-                is_fastest=entry.time_per_page_ms == min_time,
+                cost_per_page=cost_per_page,
+                estimated_total_cost=total_cost,
+                quality_notes=value.get("representative_remark"),
+                latency_ms=None,
+                is_best_quality=(
+                    score_raw is not None and max_quality is not None and score_raw == max_quality
+                ),
+                is_fastest=(
+                    time_raw is not None and min_time is not None and time_raw == min_time
+                ),
+                is_most_affordable=(
+                    total_cost is not None
+                    and min_cost is not None
+                    and total_cost == min_cost
+                ),
             )
         )
     return response
+
+
+def _coerce_validity(value: str | None) -> str | bool | None:
+    if value is None:
+        return None
+    lowered = value.strip().lower()
+    if lowered in {"true", "1", "y", "yes", "valid"}:
+        return True
+    if lowered in {"false", "0", "n", "no", "invalid"}:
+        return False
+    return value
+
+
+def _build_page_previews(document: Document) -> List[PagePreviewOut]:
+    previews: List[PagePreviewOut] = []
+    for page in document.pages:
+        provider_results: List[PageProviderResultOut] = []
+        for result in getattr(page, "provider_results", []) or []:
+            provider_results.append(
+                PageProviderResultOut(
+                    provider=result.provider,
+                    display_name=_provider_display_name(result.provider),
+                    text_content=result.text_content or page.text_content,
+                    validity=_coerce_validity(result.validity),
+                    llm_judge_score=result.llm_judge_score,
+                    processing_time_ms=result.processing_time_ms,
+                    cost_per_page=result.cost_per_page,
+                    remarks=result.remarks,
+                )
+            )
+
+        previews.append(
+            PagePreviewOut(
+                page_number=page.page_number,
+                image_path=page.image_path,
+                text_content=page.text_content,
+                provider_results=provider_results or None,
+            )
+        )
+    return previews
 
 
 @router.get("/documents", response_model=DocumentListResponse)
@@ -182,15 +398,16 @@ async def get_document_insights(
         document_id,
         options=[
             selectinload(Document.analysis_items),
-            selectinload(Document.pages),
-            selectinload(Document.provider_evaluations),
+            selectinload(Document.pages).selectinload(DocumentPage.provider_results),
             selectinload(Document.report_agent_statuses),
+            selectinload(Document.page_provider_results),
         ],
     )
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="문서를 찾을 수 없습니다.")
 
-    recommended, reason = _calculate_recommendation(document)
+    metrics = _aggregate_provider_metrics(document)
+    recommended, reason = _calculate_recommendation(document, metrics)
 
     summary = _build_document_summary(
         document,
@@ -199,11 +416,8 @@ async def get_document_insights(
         recommendation_reason=reason,
     )
 
-    provider_evaluations = _build_provider_evaluations(document)
-    pages = [
-        PagePreviewOut(page_number=page.page_number, image_path=page.image_path, text_content=page.text_content)
-        for page in document.pages
-    ]
+    provider_evaluations = _build_provider_evaluations(document, metrics)
+    pages = _build_page_previews(document)
     agent_statuses = [
         ReportAgentStatusOut(
             agent_name=item.agent_name,
@@ -232,12 +446,13 @@ async def update_document_selection(
     document = await session.get(
         Document,
         document_id,
-        options=[selectinload(Document.analysis_items), selectinload(Document.provider_evaluations)],
+        options=[selectinload(Document.analysis_items), selectinload(Document.page_provider_results)],
     )
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="문서를 찾을 수 없습니다.")
 
-    if not any(entry.provider == payload.provider for entry in document.provider_evaluations):
+    metrics = _aggregate_provider_metrics(document)
+    if payload.provider not in metrics:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="선택한 제공자가 문서 평가 데이터에 존재하지 않습니다.",
@@ -246,7 +461,7 @@ async def update_document_selection(
     document.selected_provider = payload.provider
     await session.commit()
 
-    recommended, reason = _calculate_recommendation(document)
+    recommended, reason = _calculate_recommendation(document, metrics)
 
     return _build_document_summary(
         document,
@@ -275,6 +490,12 @@ async def upload_file(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="파일 저장에 실패했습니다.")
 
     metadata = metadata_list[0]
+    default_root = Path(os.getenv("PYPI_TEST_APP_STORAGE", Path.home() / ".pypi_test_app" / "uploads" / metadata.stored_name))
+    
+    pages_count = 0
+    if (file.content_type == "application/pdf") or (metadata.extension.lower() == ".pdf"):
+        pages_count = await to_thread.run_sync(_count_pdf_pages_sync, default_root)
+
     document = Document(
         id=metadata.id,
         original_name=metadata.original_name,
@@ -284,7 +505,7 @@ async def upload_file(
         size_bytes=metadata.size_bytes,
         status=DocumentStatus.UPLOADED,
         uploaded_at=metadata.uploaded_at,
-        pages_count=0,
+        pages_count=pages_count,
     )
     session.add(document)
     await session.commit()

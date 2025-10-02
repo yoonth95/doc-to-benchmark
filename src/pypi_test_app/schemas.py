@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from .models import AgentStatus, DocumentStatus, OcrProvider
+from .models import AgentStatus, DocumentStatus
 
 
 class UploadMetadata(BaseModel):
@@ -32,9 +32,10 @@ class DocumentSummary(BaseModel):
     confidence: Optional[float]
     pages_count: int
     analysis_items_count: int
-    recommended_provider: Optional[OcrProvider]
+    recommended_provider: Optional[str]
     recommendation_reason: Optional[str]
-    selected_provider: Optional[OcrProvider]
+    selected_provider: Optional[str]
+    benchmark_url: Optional[str]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -43,10 +44,24 @@ class DocumentListResponse(BaseModel):
     items: List[DocumentSummary]
 
 
+class PageProviderResultOut(BaseModel):
+    provider: str
+    display_name: str
+    text_content: str
+    validity: str | bool | None
+    llm_judge_score: float | None
+    processing_time_ms: float | None
+    cost_per_page: float | None
+    remarks: Optional[str]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PagePreviewOut(BaseModel):
     page_number: int
     image_path: Optional[str]
     text_content: str
+    provider_results: Optional[List[PageProviderResultOut]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -81,15 +96,18 @@ class UploadResponse(BaseModel):
 
 
 class ProviderEvaluationOut(BaseModel):
-    provider: OcrProvider
+    provider: str
     display_name: str
     llm_judge_score: float
     time_per_page_ms: float
     estimated_total_time_ms: float
+    cost_per_page: float | None
+    estimated_total_cost: float | None
     quality_notes: Optional[str]
     latency_ms: Optional[int]
     is_best_quality: bool
     is_fastest: bool
+    is_most_affordable: bool
 
 
 class DocumentInsightsResponse(BaseModel):
@@ -102,4 +120,4 @@ class DocumentInsightsResponse(BaseModel):
 
 
 class ProviderSelectionRequest(BaseModel):
-    provider: OcrProvider
+    provider: str

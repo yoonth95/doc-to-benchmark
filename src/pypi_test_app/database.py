@@ -54,10 +54,16 @@ def _ensure_sqlite_schema(sync_connection) -> None:
         sync_connection.execute(text("ALTER TABLE documents ADD COLUMN recommendation_reason TEXT"))
     if "selected_provider" not in documents_columns:
         sync_connection.execute(text("ALTER TABLE documents ADD COLUMN selected_provider VARCHAR(64)"))
+    if "benchmark_url" not in documents_columns:
+        sync_connection.execute(text("ALTER TABLE documents ADD COLUMN benchmark_url VARCHAR(512)"))
 
     page_columns = {column["name"] for column in inspector.get_columns("document_pages")}
     if "image_path" not in page_columns:
         sync_connection.execute(text("ALTER TABLE document_pages ADD COLUMN image_path VARCHAR(255)"))
+
+    page_ocr_columns = {column["name"] for column in inspector.get_columns("page_ocr_results")}
+    if "cost_per_page" not in page_ocr_columns:
+        sync_connection.execute(text("ALTER TABLE page_ocr_results ADD COLUMN cost_per_page FLOAT"))
 
 
 async def initialize_database(engine: AsyncEngine) -> None:

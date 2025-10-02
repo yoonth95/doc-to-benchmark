@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 
 export type DocumentStatus = "uploaded" | "processing" | "processed" | "failed";
-export type OcrProvider = "google_vision" | "aws_textract" | "azure_document_intelligence";
+export type OcrProvider = string;
 
 export interface DocumentSummary {
   id: string;
@@ -19,6 +19,7 @@ export interface DocumentSummary {
   recommendedProvider?: OcrProvider | null;
   recommendationReason?: string | null;
   selectedProvider?: OcrProvider | null;
+  benchmarkUrl?: string | null;
 }
 
 export interface AnalysisItem {
@@ -38,10 +39,13 @@ export interface ProviderEvaluation {
   llmJudgeScore: number;
   timePerPageMs: number;
   estimatedTotalTimeMs: number;
+  costPerPage: number | null;
+  estimatedTotalCost: number | null;
   qualityNotes?: string | null;
   latencyMs?: number | null;
   isBestQuality: boolean;
   isFastest: boolean;
+  isMostAffordable: boolean;
 }
 
 export interface PageProviderResult {
@@ -50,6 +54,7 @@ export interface PageProviderResult {
   validity?: string | boolean | null;
   llmJudgeScore?: number | null;
   processingTimeMs?: number | null;
+  costPerPage?: number | null;
   remarks?: string | null;
   displayName?: string | null;
 }
@@ -113,6 +118,7 @@ function mapDocumentSummary(raw: any): DocumentSummary {
     recommendedProvider: raw.recommended_provider ?? null,
     recommendationReason: raw.recommendation_reason ?? null,
     selectedProvider: raw.selected_provider ?? null,
+    benchmarkUrl: raw.benchmark_url ?? null,
   };
 }
 
@@ -144,21 +150,25 @@ function mapProviderEvaluation(raw: any): ProviderEvaluation {
     llmJudgeScore: raw.llm_judge_score,
     timePerPageMs: raw.time_per_page_ms,
     estimatedTotalTimeMs: raw.estimated_total_time_ms,
+    costPerPage: raw.cost_per_page ?? null,
+    estimatedTotalCost: raw.estimated_total_cost ?? null,
     qualityNotes: raw.quality_notes ?? null,
     latencyMs: raw.latency_ms ?? null,
     isBestQuality: raw.is_best_quality,
     isFastest: raw.is_fastest,
+    isMostAffordable: raw.is_most_affordable,
   };
 }
 
 function mapPagePreview(raw: any): PagePreview {
   const providerResults = Array.isArray(raw.provider_results)
     ? raw.provider_results.map((item: any) => ({
-        provider: item.provider as OcrProvider,
+        provider: (item.provider ?? "") as OcrProvider,
         textContent: item.text_content ?? "",
         validity: item.validity ?? null,
         llmJudgeScore: item.llm_judge_score ?? null,
         processingTimeMs: item.processing_time_ms ?? null,
+        costPerPage: item.cost_per_page ?? null,
         remarks: item.remarks ?? item.notes ?? null,
         displayName: item.display_name ?? null,
       }))

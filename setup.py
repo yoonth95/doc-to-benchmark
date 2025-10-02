@@ -51,6 +51,12 @@ setup(
         "aiosqlite>=0.19",
         "uvicorn>=0.32.1",
         "python-multipart>=0.0.20",
+        "transformers>=4.36.2",
+        "huggingface_hub>=0.15.0",
+        "datasets>=2.16.2",
+        "faiss-cpu>=1.7.4",
+        "pydantic>=2.5.2",
+        "openai>=1.42.1",
     ],
     python_requires=">=3.10",
     entry_points={

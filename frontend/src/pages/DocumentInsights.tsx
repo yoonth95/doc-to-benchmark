@@ -11,12 +11,13 @@ import {
   Star,
   ThumbsUp,
   Timer,
+  Coins,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import {
   Table,
   TableBody,
@@ -36,23 +37,12 @@ import {
 } from "@/lib/api-client";
 import { useIsClamped } from "@/hooks/useClampled";
 import { cn } from "@/lib/utils";
+import formatDateTime from "@/utils/formatDateTime";
 
 const providerDisplay = (provider?: OcrProvider | null, evaluations: ProviderEvaluation[] = []) => {
   if (!provider) return "-";
   const match = evaluations.find((item) => item.provider === provider);
   return match?.displayName ?? provider;
-};
-
-const formatDateTime = (value?: string | null) => {
-  if (!value) return "-";
-  const date = new Date(value);
-  return new Intl.DateTimeFormat("ko-KR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
 };
 
 const formatDuration = (value?: number | null) => {
@@ -69,6 +59,19 @@ const formatDuration = (value?: number | null) => {
   return `${Math.round(value)}ms`;
 };
 
+const formatCost = (value?: number | null) => {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  if (value >= 1) {
+    return `${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}원`;
+  }
+  if (value >= 0.01) {
+    return `${value.toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}원`;
+  }
+  return `${value.toFixed(4)}원`;
+};
+
 type PageProviderTableRow = {
   provider: OcrProvider;
   displayName: string;
@@ -76,9 +79,10 @@ type PageProviderTableRow = {
   validity?: string | boolean | null;
   quality: number | null;
   timePerPageMs: number | null;
-  remarks: string | null;
+  costPerPage: number | null;
   isBestQuality: boolean;
   isFastest: boolean;
+  isMostAffordable: boolean;
   isSelected: boolean;
   isRecommended: boolean;
 };
@@ -208,9 +212,10 @@ const DocumentInsights = () => {
         validity: providerResult?.validity ?? null,
         quality: providerResult?.llmJudgeScore ?? evaluation.llmJudgeScore ?? null,
         timePerPageMs: providerResult?.processingTimeMs ?? evaluation.timePerPageMs ?? null,
-        remarks: providerResult?.remarks ?? evaluation.qualityNotes ?? null,
+        costPerPage: providerResult?.costPerPage ?? evaluation.costPerPage ?? null,
         isBestQuality: evaluation.isBestQuality,
         isFastest: evaluation.isFastest,
+        isMostAffordable: evaluation.isMostAffordable,
         isSelected: selectedProvider === evaluation.provider,
         isRecommended: recommendedProvider === evaluation.provider,
       };
@@ -258,6 +263,35 @@ const DocumentInsights = () => {
       max,
     };
   }, [providerEvaluationsList, recommendedEvaluation]);
+
+  const totalCostSummary = useMemo(() => {
+    if (recommendedEvaluation && recommendedEvaluation.estimatedTotalCost != null) {
+      return {
+        kind: "recommended" as const,
+        value: recommendedEvaluation.estimatedTotalCost,
+      };
+    }
+    const costs = providerEvaluationsList
+      .map((item) => item.estimatedTotalCost)
+      .filter((value): value is number => value != null);
+    if (!costs.length) {
+      return null;
+    }
+    const min = Math.min(...costs);
+    const max = Math.max(...costs);
+    return {
+      kind: "range" as const,
+      min,
+      max,
+    };
+  }, [providerEvaluationsList, recommendedEvaluation]);
+
+  const metricEvaluation = recommendedEvaluation ?? selectedEvaluation ?? null;
+  const metricContextLabel = recommendedEvaluation
+    ? "추천된 API 기준"
+    : selectedEvaluation
+      ? "선택한 API 기준"
+      : null;
 
   const handlePageChange = (direction: "prev" | "next") => {
     if (!pages.length) return;
@@ -353,6 +387,13 @@ const DocumentInsights = () => {
                 {document.originalName}
               </p>
               <p className="mt-2 text-xs text-muted-foreground">저장 이름: {document.storedName}</p>
+              {document.benchmarkUrl && (
+                <Button variant="link" size="sm" asChild className="px-0 text-primary">
+                  <a href={document.benchmarkUrl} target="_blank" rel="noreferrer">
+                    벤치마크 보기
+                  </a>
+                </Button>
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -435,22 +476,29 @@ const DocumentInsights = () => {
                   </div>
                 )}
               </div>
-
-              <ScrollArea className="max-h-[520px] rounded-xl border border-border bg-card">
+              <ScrollArea className="max-h-[520px] w-full rounded-xl border border-border bg-card">
                 <div className="min-w-[720px]">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="whitespace-nowrap">API 라이브러리</TableHead>
-                        <TableHead className="whitespace-nowrap">텍스트 추출 결과</TableHead>
-                        <TableHead className="whitespace-nowrap">유효성</TableHead>
-                        <TableHead className="whitespace-nowrap text-center">
+                        <TableHead className="w-[200px] whitespace-nowrap">
+                          API 라이브러리
+                        </TableHead>
+                        <TableHead className="w-[300px] whitespace-nowrap">
+                          텍스트 추출 결과
+                        </TableHead>
+                        <TableHead className="w-[100px] whitespace-nowrap text-center">
+                          유효성
+                        </TableHead>
+                        <TableHead className="w-[120px] whitespace-nowrap text-center">
                           품질 (LLM-Judge)
                         </TableHead>
-                        <TableHead className="whitespace-nowrap text-center">
+                        <TableHead className="w-[140px] whitespace-nowrap text-center">
                           페이지별 처리 시간
                         </TableHead>
-                        <TableHead className="whitespace-nowrap">비고</TableHead>
+                        <TableHead className="w-[140px] whitespace-nowrap text-center">
+                          페이지별 비용
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -466,17 +514,21 @@ const DocumentInsights = () => {
                       ) : (
                         providerRows.map((row) => {
                           const rowAccent =
-                            row.isBestQuality && row.isFastest
-                              ? "border-l-4 border-lime-400 bg-lime-50/60"
-                              : row.isBestQuality
-                                ? "border-l-4 border-amber-400 bg-amber-50/60"
-                                : row.isFastest
-                                  ? "border-l-4 border-emerald-400 bg-emerald-50/40"
-                                  : "border-l-4 border-transparent";
+                            row.isBestQuality && row.isFastest && row.isMostAffordable
+                              ? "border-l-4 border-primary bg-primary/10"
+                              : row.isBestQuality && row.isFastest
+                                ? "border-l-4 border-lime-400 bg-lime-50/60"
+                                : row.isBestQuality
+                                  ? "border-l-4 border-amber-400 bg-amber-50/60"
+                                  : row.isFastest
+                                    ? "border-l-4 border-emerald-400 bg-emerald-50/40"
+                                    : row.isMostAffordable
+                                      ? "border-l-4 border-sky-400 bg-sky-50/60"
+                                      : "border-l-4 border-transparent";
 
                           return (
                             <TableRow key={row.provider} className={cn("align-top", rowAccent)}>
-                              <TableCell className="align-top text-sm text-foreground">
+                              <TableCell className="w-[200px] align-top text-sm text-foreground">
                                 <div className="flex flex-col gap-2">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="font-semibold">{row.displayName}</span>
@@ -510,23 +562,31 @@ const DocumentInsights = () => {
                                         최단 시간
                                       </Badge>
                                     )}
+                                    {row.isMostAffordable && (
+                                      <Badge
+                                        className="bg-sky-500 text-sky-950"
+                                        variant="secondary"
+                                      >
+                                        최저 비용
+                                      </Badge>
+                                    )}
                                   </div>
                                 </div>
                               </TableCell>
-                              <TableCell className="align-top min-w-[200px]">
+                              <TableCell className="w-[300px] align-top">
                                 <ClampedTextCell text={row.text} />
                               </TableCell>
-                              <TableCell className="align-top text-sm text-foreground text-center">
+                              <TableCell className="w-[100px] align-top text-sm text-foreground text-center">
                                 {formatValidity(row.validity)}
                               </TableCell>
-                              <TableCell className="align-top text-center text-sm text-foreground">
+                              <TableCell className="w-[120px] align-top text-center text-sm text-foreground">
                                 {row.quality != null ? row.quality.toFixed(1) : "-"}
                               </TableCell>
-                              <TableCell className="align-top text-center text-sm text-foreground">
+                              <TableCell className="w-[140px] align-top text-center text-sm text-foreground">
                                 {formatDuration(row.timePerPageMs)}
                               </TableCell>
-                              <TableCell className="align-top text-sm text-muted-foreground">
-                                {row.remarks ?? "-"}
+                              <TableCell className="w-[140px] align-top text-center text-sm text-foreground">
+                                {formatCost(row.costPerPage)}
                               </TableCell>
                             </TableRow>
                           );
@@ -535,6 +595,9 @@ const DocumentInsights = () => {
                     </TableBody>
                   </Table>
                 </div>
+
+                <ScrollBar orientation="horizontal" />
+                <ScrollBar orientation="vertical" />
               </ScrollArea>
             </CardContent>
           </Card>
@@ -561,7 +624,7 @@ const DocumentInsights = () => {
                 </p>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="flex flex-col gap-1 rounded-lg border border-border p-3">
                   <span className="text-xs font-semibold text-muted-foreground tracking-wide">
                     총 처리 시간
@@ -588,25 +651,56 @@ const DocumentInsights = () => {
 
                 <div className="flex flex-col gap-1 rounded-lg border border-border p-3">
                   <span className="text-xs font-semibold text-muted-foreground tracking-wide">
+                    총 비용
+                  </span>
+                  <div className="flex items-center gap-2 text-sm text-foreground">
+                    <Coins className="h-4 w-4 text-primary" />
+                    {totalCostSummary ? (
+                      totalCostSummary.kind === "recommended" ? (
+                        <span>
+                          {formatCost(totalCostSummary.value)} (총 {documentPagesCount} 페이지)
+                        </span>
+                      ) : (
+                        <span>
+                          {`${formatCost(totalCostSummary.min)} ~ ${formatCost(totalCostSummary.max)}`} (총
+                          {documentPagesCount} 페이지)
+                        </span>
+                      )
+                    ) : (
+                      <span>계산 가능한 비용 정보가 없습니다.</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1 rounded-lg border border-border p-3">
+                  <span className="text-xs font-semibold text-muted-foreground tracking-wide">
                     추천 지표
                   </span>
-                  {recommendedEvaluation ? (
-                    <div className="flex items-center gap-3 text-sm text-foreground">
+                  {metricContextLabel && (
+                    <span className="text-xs text-muted-foreground">{metricContextLabel}</span>
+                  )}
+                  {metricEvaluation ? (
+                    <div className="flex flex-col gap-1 text-sm text-foreground">
                       <span className="flex items-center gap-1">
                         <Sparkles className="h-4 w-4 text-primary" />
-                        {recommendedEvaluation.llmJudgeScore.toFixed(1)}
+                        {metricEvaluation.llmJudgeScore.toFixed(1)} 점
                       </span>
-                      <span className="text-muted-foreground">·</span>
-                      <span>{formatDuration(recommendedEvaluation.timePerPageMs)} / 페이지</span>
-                    </div>
-                  ) : selectedEvaluation ? (
-                    <div className="flex items-center gap-3 text-sm text-foreground">
-                      <span className="flex items-center gap-1">
-                        <Sparkles className="h-4 w-4 text-primary" />
-                        {selectedEvaluation.llmJudgeScore.toFixed(1)}
+                      <span className="flex items-center gap-1 text-muted-foreground">
+                        <Timer className="h-3 w-3" />
+                        {formatDuration(metricEvaluation.timePerPageMs)} / 페이지
                       </span>
-                      <span className="text-muted-foreground">·</span>
-                      <span>{formatDuration(selectedEvaluation.timePerPageMs)} / 페이지</span>
+                      {metricEvaluation.costPerPage != null && (
+                        <span className="flex items-center gap-1 text-muted-foreground">
+                          <Coins className="h-3 w-3" />
+                          {formatCost(metricEvaluation.costPerPage)} / 페이지
+                        </span>
+                      )}
+                      {metricEvaluation.estimatedTotalCost != null && (
+                        <span className="flex items-center gap-1 text-muted-foreground">
+                          <Coins className="h-3 w-3" />
+                          {formatCost(metricEvaluation.estimatedTotalCost)} (총 {documentPagesCount} 페이지)
+                        </span>
+                      )}
                     </div>
                   ) : (
                     <span className="text-sm text-muted-foreground">

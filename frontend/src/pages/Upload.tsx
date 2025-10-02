@@ -6,11 +6,12 @@ import { toast } from "sonner";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { uploadDocument, DocumentSummary, type UploadDocumentPayload } from "@/lib/api-client";
 import { useApiKey } from "@/hooks/use-api-key";
+import { Input } from "@/components/ui/input";
 
 const Upload = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { apiKey } = useApiKey();
+  const { apiKey, setApiKey } = useApiKey();
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -25,7 +26,8 @@ const Upload = () => {
       toast.success("문서 업로드가 완료되었습니다");
       setFile(null);
 
-      if (item.status === "processed" || item.pagesCount > 0) {
+      // if (item.status === "processed" || item.pagesCount > 0) {
+      if (item.status === "processed") {
         navigate(`/analysis/${item.id}`);
       } else {
         navigate("/analysis");
@@ -166,6 +168,19 @@ const Upload = () => {
               </div>
             </div>
           )}
+
+          <div className="flex flex-col gap-2">
+            <h3 className="font-semibold">OCR API Key 입력</h3>
+            <Input
+              id="api-key"
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder="Solar Pro2 / Upstage API Key"
+              className="min-w-0 flex-1"
+              aria-label="OCR API Key"
+            />
+          </div>
 
           {/* Actions */}
           <div className="flex gap-4">

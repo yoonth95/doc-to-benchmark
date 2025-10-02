@@ -18,12 +18,6 @@ class DocumentStatus(str, enum.Enum):
     FAILED = "failed"
 
 
-class OcrProvider(str, enum.Enum):
-    GOOGLE_VISION = "google_vision"
-    AWS_TEXTRACT = "aws_textract"
-    AZURE_DOCUMENT_INTELLIGENCE = "azure_document_intelligence"
-
-
 class Document(Base):
     __tablename__ = "documents"
 
@@ -41,9 +35,10 @@ class Document(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     processing_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     mermaid_chart: Mapped[str | None] = mapped_column(Text, nullable=True)
-    recommended_provider: Mapped[OcrProvider | None] = mapped_column(Enum(OcrProvider), nullable=True)
+    recommended_provider: Mapped[str | None] = mapped_column(String(128), nullable=True)
     recommendation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    selected_provider: Mapped[OcrProvider | None] = mapped_column(Enum(OcrProvider), nullable=True)
+    selected_provider: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    benchmark_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     pages: Mapped[list["DocumentPage"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="DocumentPage.page_number"
@@ -51,8 +46,10 @@ class Document(Base):
     analysis_items: Mapped[list["AnalysisItem"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="AnalysisItem.page_number"
     )
-    provider_evaluations: Mapped[list["OcrProviderEvaluation"]] = relationship(
-        back_populates="document", cascade="all, delete-orphan", order_by="OcrProviderEvaluation.provider"
+    page_provider_results: Mapped[list["PageOcrResult"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="PageOcrResult.page_number",
     )
     report_agent_statuses: Mapped[list["ReportAgentStatus"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
@@ -71,6 +68,11 @@ class DocumentPage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     document: Mapped[Document] = relationship(back_populates="pages")
+    provider_results: Mapped[list["PageOcrResult"]] = relationship(
+        back_populates="page",
+        cascade="all, delete-orphan",
+        order_by="PageOcrResult.provider",
+    )
 
 
 class AnalysisItem(Base):
@@ -87,19 +89,26 @@ class AnalysisItem(Base):
     document: Mapped[Document] = relationship(back_populates="analysis_items")
 
 
-class OcrProviderEvaluation(Base):
-    __tablename__ = "ocr_provider_evaluations"
-    __table_args__ = (UniqueConstraint("document_id", "provider", name="uix_document_provider"),)
+class PageOcrResult(Base):
+    __tablename__ = "page_ocr_results"
+    __table_args__ = (UniqueConstraint("document_id", "page_number", "provider", name="uix_page_provider"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
-    provider: Mapped[OcrProvider] = mapped_column(Enum(OcrProvider))
-    llm_judge_score: Mapped[float] = mapped_column(Float)
-    time_per_page_ms: Mapped[float] = mapped_column(Float)
-    quality_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    document_page_id: Mapped[int] = mapped_column(ForeignKey("document_pages.id", ondelete="CASCADE"))
+    page_number: Mapped[int] = mapped_column(Integer)
+    provider: Mapped[str] = mapped_column(String(128))
+    text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    validity: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    llm_judge_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    processing_time_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cost_per_page: Mapped[float | None] = mapped_column(Float, nullable=True)
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    document: Mapped[Document] = relationship(back_populates="provider_evaluations")
+    document: Mapped[Document] = relationship(back_populates="page_provider_results")
+    page: Mapped[DocumentPage] = relationship(back_populates="provider_results")
 
 
 class AgentStatus(str, enum.Enum):
