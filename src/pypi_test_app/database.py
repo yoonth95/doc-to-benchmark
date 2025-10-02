@@ -48,12 +48,22 @@ def _ensure_sqlite_schema(sync_connection) -> None:
     inspector = inspect(sync_connection)
 
     documents_columns = {column["name"] for column in inspector.get_columns("documents")}
-    if "recommended_provider" not in documents_columns:
-        sync_connection.execute(text("ALTER TABLE documents ADD COLUMN recommended_provider VARCHAR(64)"))
-    if "recommendation_reason" not in documents_columns:
-        sync_connection.execute(text("ALTER TABLE documents ADD COLUMN recommendation_reason TEXT"))
-    if "selected_provider" not in documents_columns:
-        sync_connection.execute(text("ALTER TABLE documents ADD COLUMN selected_provider VARCHAR(64)"))
+
+    # 컬럼 이름 변경 (기존 스키마 호환)
+    rename_map = {
+        "confidence": "quality_score",
+        "processing_summary": "selection_rationale",
+        "recommended_provider": "recommended_strategy",
+        "recommendation_reason": "recommendation_notes",
+        "selected_provider": "selected_strategy",
+    }
+    for legacy, updated in rename_map.items():
+        if legacy in documents_columns and updated not in documents_columns:
+            sync_connection.execute(text(f"ALTER TABLE documents RENAME COLUMN {legacy} TO {updated}"))
+    # 새 컬럼 추가
+    documents_columns = {column["name"] for column in inspector.get_columns("documents")}
+    if "ocr_speed_ms_per_page" not in documents_columns:
+        sync_connection.execute(text("ALTER TABLE documents ADD COLUMN ocr_speed_ms_per_page FLOAT"))
     if "benchmark_url" not in documents_columns:
         sync_connection.execute(text("ALTER TABLE documents ADD COLUMN benchmark_url VARCHAR(512)"))
 

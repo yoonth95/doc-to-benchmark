@@ -29,12 +29,14 @@ class DocumentSummary(BaseModel):
     status: DocumentStatus
     uploaded_at: datetime
     processed_at: Optional[datetime]
-    confidence: Optional[float]
+    quality_score: Optional[float]
     pages_count: int
     analysis_items_count: int
-    recommended_provider: Optional[str]
-    recommendation_reason: Optional[str]
-    selected_provider: Optional[str]
+    recommended_strategy: Optional[str]
+    recommendation_notes: Optional[str]
+    selected_strategy: Optional[str]
+    selection_rationale: Optional[str]
+    ocr_speed_ms_per_page: Optional[float]
     benchmark_url: Optional[str]
 
     model_config = ConfigDict(from_attributes=True)
@@ -116,7 +118,7 @@ class DocumentInsightsResponse(BaseModel):
     pages: List[PagePreviewOut]
     agent_statuses: List[ReportAgentStatusOut]
     mermaid_chart: Optional[str]
-    processing_summary: Optional[str]
+    selection_rationale: Optional[str]
 
 
 class ProviderSelectionRequest(BaseModel):

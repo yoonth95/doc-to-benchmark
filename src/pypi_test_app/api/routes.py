@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
@@ -30,12 +31,12 @@ from ..schemas import (
     ReportAgentStatusOut,
     UploadResponse,
 )
+from ..ocr_pipeline import process_document
 from ..storage import UploadStorage
 from .dependencies import get_session, get_storage
 
 from anyio import to_thread
 from PyPDF2 import PdfReader
-from fastapi import HTTPException
 
 def _count_pdf_pages_sync(path: str) -> int:
     with open(path, "rb") as f:
@@ -57,13 +58,27 @@ _PROVIDER_DISPLAY_NAMES = {
     "google_vision": "Google Vision API",
     "aws_textract": "AWS Textract",
     "azure_document_intelligence": "Azure Document Intelligence",
+    "pdfplumber": "PDFPlumber",
+    "pdfminer": "PDFMiner",
+    "pypdfium2": "PyPDFium2",
+    "upstage_ocr": "Upstage OCR",
+    "upstage_document_parse": "Upstage Document Parse",
 }
 
 
 def _provider_display_name(provider: str | None) -> str:
     if not provider:
         return "-"
-    return _PROVIDER_DISPLAY_NAMES.get(provider, provider.replace("_", " ").title())
+    if provider in _PROVIDER_DISPLAY_NAMES:
+        return _PROVIDER_DISPLAY_NAMES[provider]
+    if "+" in provider:
+        parts = provider.split("+")
+        formatted = [
+            _PROVIDER_DISPLAY_NAMES.get(part, part.replace("_", " ").title())
+            for part in parts
+        ]
+        return " + ".join(formatted)
+    return provider.replace("_", " ").title()
 
 
 def _build_document_summary(
@@ -83,14 +98,16 @@ def _build_document_summary(
         status=document.status,
         uploaded_at=document.uploaded_at,
         processed_at=document.processed_at,
-        confidence=document.confidence,
+        quality_score=document.quality_score,
         pages_count=document.pages_count,
         analysis_items_count=analysis_items_count,
-        recommended_provider=recommended if recommended is not None else document.recommended_provider,
-        recommendation_reason=(
-            recommendation_reason if recommendation_reason is not None else document.recommendation_reason
+        recommended_strategy=recommended if recommended is not None else document.recommended_strategy,
+        recommendation_notes=(
+            recommendation_reason if recommendation_reason is not None else document.recommendation_notes
         ),
-        selected_provider=document.selected_provider,
+        selected_strategy=document.selected_strategy,
+        selection_rationale=document.selection_rationale,
+        ocr_speed_ms_per_page=document.ocr_speed_ms_per_page,
         benchmark_url=document.benchmark_url,
     )
 
@@ -149,12 +166,12 @@ def _calculate_recommendation(
     document: Document,
     metrics: dict[str, dict[str, object]] | None = None,
 ) -> tuple[str | None, str | None]:
-    if document.recommended_provider and document.recommendation_reason:
-        return document.recommended_provider, document.recommendation_reason
+    if document.recommended_strategy and document.recommendation_notes:
+        return document.recommended_strategy, document.recommendation_notes
 
     metrics = metrics or _aggregate_provider_metrics(document)
     if not metrics:
-        return document.recommended_provider, document.recommendation_reason
+        return document.recommended_strategy, document.recommendation_notes
 
     quality_values = [
         value["average_score"]
@@ -433,7 +450,7 @@ async def get_document_insights(
         pages=pages,
         agent_statuses=agent_statuses,
         mermaid_chart=document.mermaid_chart,
-        processing_summary=document.processing_summary,
+        selection_rationale=document.selection_rationale,
     )
 
 
@@ -458,7 +475,7 @@ async def update_document_selection(
             detail="선택한 제공자가 문서 평가 데이터에 존재하지 않습니다.",
         )
 
-    document.selected_provider = payload.provider
+    document.selected_strategy = payload.provider
     await session.commit()
 
     recommended, reason = _calculate_recommendation(document, metrics)
@@ -478,7 +495,7 @@ async def upload_file(
     storage: UploadStorage = Depends(get_storage),
     session: AsyncSession = Depends(get_session),
 ) -> UploadResponse:
-    api_key = request.headers.get("x-ocr-api-key")
+    api_key = (request.headers.get("x-ocr-api-key") or "").strip()
     if not api_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API 키가 필요합니다.")
 
@@ -490,11 +507,11 @@ async def upload_file(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="파일 저장에 실패했습니다.")
 
     metadata = metadata_list[0]
-    default_root = Path(os.getenv("PYPI_TEST_APP_STORAGE", Path.home() / ".pypi_test_app" / "uploads" / metadata.stored_name))
-    
+    file_path = storage.base_directory / metadata.stored_name
+
     pages_count = 0
-    if (file.content_type == "application/pdf") or (metadata.extension.lower() == ".pdf"):
-        pages_count = await to_thread.run_sync(_count_pdf_pages_sync, default_root)
+    if (file.content_type == "application/pdf") or (metadata.extension and metadata.extension.lower() == ".pdf"):
+        pages_count = await to_thread.run_sync(_count_pdf_pages_sync, str(file_path))
 
     document = Document(
         id=metadata.id,
@@ -503,14 +520,51 @@ async def upload_file(
         content_type=file.content_type,
         extension=metadata.extension,
         size_bytes=metadata.size_bytes,
-        status=DocumentStatus.UPLOADED,
+        status=DocumentStatus.PROCESSING,
         uploaded_at=metadata.uploaded_at,
         pages_count=pages_count,
     )
     session.add(document)
     await session.commit()
+    await session.refresh(document)
 
-    summary = _build_document_summary(document, analysis_items_count=0)
+    try:
+        await process_document(
+            document=document,
+            file_path=file_path,
+            storage=storage,
+            session=session,
+            api_key=api_key,
+        )
+        await session.commit()
+    except Exception as exc:  # noqa: BLE001
+        await session.rollback()
+        document = await session.get(Document, document.id)
+        if document is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="OCR 처리 중 알 수 없는 오류가 발생했습니다.",
+            ) from exc
+
+        document.status = DocumentStatus.FAILED
+        document.selection_rationale = f"OCR 처리 실패: {exc}"
+        document.processed_at = datetime.utcnow()
+        document.recommended_strategy = None
+        document.recommendation_notes = None
+        document.selected_strategy = None
+        document.quality_score = None
+        document.ocr_speed_ms_per_page = None
+        await session.commit()
+    finally:
+        await session.refresh(document)
+
+    analysis_items_count = await session.scalar(
+        select(func.count(AnalysisItem.id)).where(AnalysisItem.document_id == document.id)
+    )
+    summary = _build_document_summary(
+        document,
+        analysis_items_count=int(analysis_items_count or 0),
+    )
     return UploadResponse(document=summary)
 
 

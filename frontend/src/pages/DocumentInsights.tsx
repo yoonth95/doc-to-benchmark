@@ -160,9 +160,8 @@ const DocumentInsights = () => {
             document: {
               ...prev.document,
               ...summary,
-              recommendedProvider: summary.recommendedProvider ?? prev.document.recommendedProvider,
-              recommendationReason:
-                summary.recommendationReason ?? prev.document.recommendationReason,
+              recommendedStrategy: summary.recommendedStrategy ?? prev.document.recommendedStrategy,
+              recommendationNotes: summary.recommendationNotes ?? prev.document.recommendationNotes,
             },
           };
         },
@@ -180,8 +179,8 @@ const DocumentInsights = () => {
     () => data?.providerEvaluations ?? [],
     [data?.providerEvaluations],
   );
-  const selectedProvider = data?.document.selectedProvider;
-  const recommendedProvider = data?.document.recommendedProvider;
+  const selectedStrategy = data?.document.selectedStrategy;
+  const recommendedStrategy = data?.document.recommendedStrategy;
 
   useEffect(() => {
     setSelectedPageIndex(0);
@@ -216,33 +215,33 @@ const DocumentInsights = () => {
         isBestQuality: evaluation.isBestQuality,
         isFastest: evaluation.isFastest,
         isMostAffordable: evaluation.isMostAffordable,
-        isSelected: selectedProvider === evaluation.provider,
-        isRecommended: recommendedProvider === evaluation.provider,
+        isSelected: selectedStrategy === evaluation.provider,
+        isRecommended: recommendedStrategy === evaluation.provider,
       };
     });
   }, [
     providerEvaluationsList,
     providerResultsMap,
     currentPage?.textContent,
-    selectedProvider,
-    recommendedProvider,
+    selectedStrategy,
+    recommendedStrategy,
   ]);
 
   const documentPagesCount = data?.document?.pagesCount ?? pages.length;
 
   const recommendedEvaluation = useMemo(() => {
-    if (!recommendedProvider) {
+    if (!recommendedStrategy) {
       return null;
     }
-    return providerEvaluationsList.find((item) => item.provider === recommendedProvider) ?? null;
-  }, [providerEvaluationsList, recommendedProvider]);
+    return providerEvaluationsList.find((item) => item.provider === recommendedStrategy) ?? null;
+  }, [providerEvaluationsList, recommendedStrategy]);
 
   const selectedEvaluation = useMemo(() => {
-    if (!selectedProvider) {
+    if (!selectedStrategy) {
       return null;
     }
-    return providerEvaluationsList.find((item) => item.provider === selectedProvider) ?? null;
-  }, [providerEvaluationsList, selectedProvider]);
+    return providerEvaluationsList.find((item) => item.provider === selectedStrategy) ?? null;
+  }, [providerEvaluationsList, selectedStrategy]);
 
   const totalTimeSummary = useMemo(() => {
     if (recommendedEvaluation) {
@@ -305,7 +304,7 @@ const DocumentInsights = () => {
 
   const handleProviderSelection = (provider: OcrProvider) => {
     if (!documentId) return;
-    if (provider === data?.document.selectedProvider) {
+    if (provider === data?.document.selectedStrategy) {
       toast.info("이미 선택된 API입니다");
       return;
     }
@@ -431,10 +430,10 @@ const DocumentInsights = () => {
                     페이지별 OCR 비교
                   </CardTitle>
                 </div>
-                {document.recommendedProvider && (
+                {document.recommendedStrategy && (
                   <Badge variant="secondary" className="gap-1">
                     <Star className="h-3 w-3" />
-                    추천: {providerDisplay(document.recommendedProvider, providerEvaluationsList)}
+                    추천: {providerDisplay(document.recommendedStrategy, providerEvaluationsList)}
                   </Badge>
                 )}
               </div>
@@ -613,13 +612,13 @@ const DocumentInsights = () => {
                     추천 API
                   </Badge>
                   <span className="text-lg font-semibold text-foreground">
-                    {document.recommendedProvider
-                      ? providerDisplay(document.recommendedProvider, providerEvaluationsList)
+                    {document.recommendedStrategy
+                      ? providerDisplay(document.recommendedStrategy, providerEvaluationsList)
                       : "추천 정보를 계산 중입니다"}
                   </span>
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  {document.recommendationReason ??
+                  {document.recommendationNotes ??
                     "품질과 처리 시간 데이터를 바탕으로 추천 결과를 계산 중입니다."}
                 </p>
               </div>
@@ -662,7 +661,8 @@ const DocumentInsights = () => {
                         </span>
                       ) : (
                         <span>
-                          {`${formatCost(totalCostSummary.min)} ~ ${formatCost(totalCostSummary.max)}`} (총
+                          {`${formatCost(totalCostSummary.min)} ~ ${formatCost(totalCostSummary.max)}`}{" "}
+                          (총
                           {documentPagesCount} 페이지)
                         </span>
                       )
@@ -698,7 +698,8 @@ const DocumentInsights = () => {
                       {metricEvaluation.estimatedTotalCost != null && (
                         <span className="flex items-center gap-1 text-muted-foreground">
                           <Coins className="h-3 w-3" />
-                          {formatCost(metricEvaluation.estimatedTotalCost)} (총 {documentPagesCount} 페이지)
+                          {formatCost(metricEvaluation.estimatedTotalCost)} (총 {documentPagesCount}{" "}
+                          페이지)
                         </span>
                       )}
                     </div>
@@ -723,8 +724,8 @@ const DocumentInsights = () => {
                   <p className="text-xs text-muted-foreground">선택 가능한 API가 없습니다.</p>
                 ) : (
                   providerEvaluationsList.map((item) => {
-                    const isActive = document.selectedProvider === item.provider;
-                    const isRecommendedChoice = document.recommendedProvider === item.provider;
+                    const isActive = document.selectedStrategy === item.provider;
+                    const isRecommendedChoice = document.recommendedStrategy === item.provider;
 
                     return (
                       <Button
@@ -740,7 +741,7 @@ const DocumentInsights = () => {
                         disabled={selectionMutation.isPending}
                       >
                         {selectionMutation.isPending &&
-                        document.selectedProvider !== item.provider ? (
+                        document.selectedStrategy !== item.provider ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : isActive ? (
                           <ThumbsUp className="h-4 w-4" />

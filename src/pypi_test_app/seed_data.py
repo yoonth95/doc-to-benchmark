@@ -104,21 +104,23 @@ async def seed_if_empty(session: AsyncSession) -> None:
         size_bytes=1_048_576,
         pages_count=45,
         language="한국어",
-        confidence=93.2,
+        quality_score=93.2,
         status=DocumentStatus.PROCESSED,
         uploaded_at=now - timedelta(days=2, minutes=12),
         processed_at=now - timedelta(days=2, minutes=5),
-        processing_summary=(
+        selection_rationale=(
             "Multi-Agent 파이프라인을 통해 문서 구조를 분석하고 주요 정책 요약과 통계를 추출했습니다. "
             "추가 검수가 필요한 항목은 Refiner 단계에서 플래그 처리되었습니다."
         ),
         mermaid_chart=MERMAID_CHART,
-        recommended_provider="azure_document_intelligence",
-        recommendation_reason=(
+        recommended_strategy="azure_document_intelligence",
+        recommendation_notes=(
             "Azure Document Intelligence가 가장 높은 LLM Judge 점수와 안정적인 처리 시간을 제공하며"
             " 페이지당 평균 처리 속도가 가장 빨라 전체 처리 시간을 단축합니다."
         ),
         benchmark_url="https://huggingface.co/datasets/GAYOEN/DOC_RAG_FINANCE_BENCHMARK",
+        selected_strategy="azure_document_intelligence",
+        ocr_speed_ms_per_page=820.0,
     )
 
     document_one.pages = [
@@ -254,11 +256,11 @@ async def seed_if_empty(session: AsyncSession) -> None:
         size_bytes=786_432,
         pages_count=28,
         language="한국어",
-        confidence=88.4,
+        quality_score=88.4,
         status=DocumentStatus.PROCESSING,
         uploaded_at=now - timedelta(hours=6),
         processed_at=None,
-        processing_summary="현재 Parsing 단계에서 표 추출 정합성 검증을 진행 중입니다.",
+        selection_rationale="현재 Parsing 단계에서 표 추출 정합성 검증을 진행 중입니다.",
         mermaid_chart=MERMAID_CHART,
         benchmark_url=None,
     )

@@ -53,6 +53,7 @@ const Upload = () => {
     if (selected) {
       setFile(selected);
     }
+    e.target.value = ""; // 같은 파일 재선택 허용
   };
 
   const clearFile = () => {

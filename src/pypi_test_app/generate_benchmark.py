@@ -1,4 +1,3 @@
-# Library
 from multiprocessing import context
 import os
 import pandas as pd
@@ -11,17 +10,15 @@ warnings.filterwarnings("ignore")
 import re
 from typing import List, Dict, Any
 
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from huggingface_hub import login
 from datasets import load_dataset
 import faiss
 
-from pydantic import BaseModel, Field
 from openai import OpenAI
 from datasets import Dataset
 
 # Config
-CONFIG_PATH = "./data/config.json"
+CONFIG_PATH = "../config.json"
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 UPSTAGE_API = config["UPSTAGE_API"]
@@ -34,29 +31,41 @@ SOLAR_MODEL = 'solar-pro2'
 LLAMA_MODEL = 'meta-llama/Llama-3.2-3B-Instruct'
 
 # Config: Data
-
-FINANCE_QA_PATH = config["FINANCE_QA_PATH"]
-FINANCE_BENCHMARK_PATH = config["FINANCE_BENCHMARK_PATH"]
-FINANCE_BENCHMARK_VALID_PATH = config["FINANCE_BENCHMARK_VALID_PATH"]
-FINANCE_BENCHMARK_VALID_FILTERING_PATH = config["FINANCE_BENCHMARK_VALID_FILTERING_PATH"]
-
-PIT_QA_PATH = config["PIT_QA_PATH"]
-PIT_BENCHMARK_PATH = config["PIT_BENCHMARK_PATH"]
-PIT_BENCHMARK_RAG_PATH = config["PIT_BENCHMARK_RAG_PATH"]
-PIT_BENCHMARK_VALID_PATH = config["PIT_BENCHMARK_VALID_PATH"]
-PIT_BENCHMARK_VALID_FILTERING_PATH = config["PIT_BENCHMARK_VALID_FILTERING_PATH"]
-
-REPORT_QA_PATH = config["REPORT_QA_PATH"]
-REPORT_BENCHMARK_PATH = config["REPORT_BENCHMARK_PATH"]
-REPORT_BENCHMARK_RAG_PATH = config["REPORT_BENCHMARK_RAG_PATH"]
-REPORT_BENCHMARK_VALID_PATH = config["REPORT_BENCHMARK_VALID_PATH"]
-REPORT_BENCHMARK_VALID_FILTERING_PATH = config["REPORT_BENCHMARK_VALID_FILTERING_PATH"]
-
-KRX_QA_PATH = config["KRX_QA_PATH"]
-KRX_BENCHMARK_PATH = config["KRX_BENCHMARK_PATH"]   
-KRX_BENCHMARK_RAG_PATH = config["KRX_BENCHMARK_RAG_PATH"]
-KRX_BENCHMARK_VALID_PATH = config["KRX_BENCHMARK_VALID_PATH"]
-KRX_BENCHMARK_VALID_FILTERING_PATH = config["KRX_BENCHMARK_VALID_FILTERING_PATH"]
+# Config: Data
+def select_dataset_config(dataset_name: str) -> Dict[str, str]:
+    if dataset_name == "FINANCE":
+        return {
+            "QA_PATH": config["FINANCE_QA_PATH"],
+            "BENCHMARK_PATH": config["FINANCE_BENCHMARK_PATH"],
+            "BENCHMARK_VALID_PATH": config["FINANCE_BENCHMARK_VALID_PATH"],
+            "BENCHMARK_VALID_FILTERING_PATH": config["FINANCE_BENCHMARK_VALID_FILTERING_PATH"],
+        }
+    elif dataset_name == "PIT":
+        return {
+            "QA_PATH": config["PIT_QA_PATH"],
+            "BENCHMARK_PATH": config["PIT_BENCHMARK_PATH"],
+            "BENCHMARK_RAG_PATH": config["PIT_BENCHMARK_RAG_PATH"],
+            "BENCHMARK_VALID_PATH": config["PIT_BENCHMARK_VALID_PATH"],
+            "BENCHMARK_VALID_FILTERING_PATH": config["PIT_BENCHMARK_VALID_FILTERING_PATH"],
+        }
+    elif dataset_name == "REPORT":
+        return {
+            "QA_PATH": config["REPORT_QA_PATH"],
+            "BENCHMARK_PATH": config["REPORT_BENCHMARK_PATH"],
+            "BENCHMARK_RAG_PATH": config["REPORT_BENCHMARK_RAG_PATH"],
+            "BENCHMARK_VALID_PATH": config["REPORT_BENCHMARK_VALID_PATH"],
+            "BENCHMARK_VALID_FILTERING_PATH": config["REPORT_BENCHMARK_VALID_FILTERING_PATH"],
+        }
+    elif dataset_name == "KRX":
+        return {
+            "QA_PATH": config["KRX_QA_PATH"],
+            "BENCHMARK_PATH": config["KRX_BENCHMARK_PATH"],
+            "BENCHMARK_RAG_PATH": config["KRX_BENCHMARK_RAG_PATH"],
+            "BENCHMARK_VALID_PATH": config["KRX_BENCHMARK_VALID_PATH"],
+            "BENCHMARK_VALID_FILTERING_PATH": config["KRX_BENCHMARK_VALID_FILTERING_PATH"],
+        }
+    else:
+        raise ValueError(f"Unknown dataset name: {dataset_name}")
 
 # Config: Prompt
 GENERATE_QA_PROMPT_PATH = config["GENERATE_QA_PROMPT_PATH"]
@@ -448,13 +457,13 @@ def qa_evaluate(qa_data: List[str], api_key: str, save_path: str) -> Dict[str, A
     QA 데이터를 평가하는 함수: 도메인 적합성, 품질, 난이도 
     """
     domain_info = detect_domain_generate_judge_prompt(qa_data, api_key=api_key)
-    # print('finish domain_info')
+    print('finish domain_info')
     domain_results = evaluate_domain_validity(qa_data, domain_info, api_key=api_key)
-    # print('finish domain_results')
+    print('finish domain_results')
     quality_results = evaluate_quality(qa_data, api_key=api_key)
-    # print('finish quality_results')
+    print('finish quality_results')
     difficulty_results = evaluate_difficulty(qa_data, api_key=api_key)
-    # print('finish difficulty_results')
+    print('finish difficulty_results')
 
     combined_results = []
     for i in range(len(qa_data)):
@@ -475,7 +484,6 @@ def qa_evaluate(qa_data: List[str], api_key: str, save_path: str) -> Dict[str, A
     # JSON 파일로 저장
     with open(save_path, 'w', encoding='utf-8') as f:
         json.dump(combined_results, f, ensure_ascii=False, indent=4)
-
     return combined_results
 
 ### Benchmark Filtering ###
@@ -574,23 +582,22 @@ def filter_benchmark_data(
 ### Main Process ###
 
 def main():
-    FILE_NAME = "KRX"
-#####################데이터 로드###########################
-    # contexts = pd.read_csv(FINANCE_QA_PATH)
-    # contexts = [i for i in contexts['context']]
- 
-    # masking_dfs = load_dataset("ohsuz/PII_text_dataset")
-    # masking_df = pd.DataFrame(masking_dfs['train'])
-    # contexts = [i for i in masking_df['text']]
-    # contexts = contexts[:20]
+    choices = ["FINANCE", "PIT", "REPORT", "KRX"]
+    print("데이터셋을 선택하세요:")
+    for idx, choice in enumerate(choices, 1):
+        print(f"{idx}. {choice}")
+    selection = int(input("번호 선택: "))
+    DATA_NAME = choices[selection - 1]
+    dataset_config = select_dataset_config(DATA_NAME)
 
-    # contexts = pd.read_csv(REPORT_QA_PATH)
-    # contexts = [i for i in contexts['Context']]
-
-    contexts = pd.read_csv(KRX_QA_PATH)
-    contexts = [i for i in contexts['Context']]
-
-##########################################################
+#데이터 로드
+    if DATA_NAME == "PIT":
+        dfs = load_dataset("ohsuz/PII_text_dataset")
+        df = pd.DataFrame(dfs['train'])
+        contexts = [i for i in df['text']][:30]
+    else:
+        contexts = pd.read_csv(dataset_config["QA_PATH"])
+        contexts = [i for i in contexts['Context']]
 
     # 모델 로드
     client = OpenAI(
@@ -598,13 +605,8 @@ def main():
         base_url="https://api.upstage.ai/v1"
     )
 
-    # 데이터 청킹
-    # chunk_fintext = []
-    # for text in fintext:
-    #     chunk_fintext.extend(chunk_text(text,20))
-
     # QA 벤치마크 생성
-    save_path = KRX_BENCHMARK_PATH
+    save_path = dataset_config["BENCHMARK_PATH"]
     benchmark = generate_for_contexts(contexts, api_key=UPSTAGE_API, save_path=save_path)
 
     # 전체 문서
@@ -617,22 +619,20 @@ def main():
         benchmark, all_contexts, client, get_embeddings, k=3
     )
     # RAG 벤치마크 저장
-    with open(KRX_BENCHMARK_RAG_PATH, "w", encoding="utf-8") as f:
+    with open(dataset_config["BENCHMARK_RAG_PATH"], "w", encoding="utf-8") as f:
         json.dump(rag_benchmark, f, ensure_ascii=False, indent=4)
 
     # 데이터 타당성 확보
-    save_path = KRX_BENCHMARK_VALID_PATH
+    save_path = dataset_config["BENCHMARK_VALID_PATH"]
     benchmark_valid = qa_evaluate(rag_benchmark, api_key=UPSTAGE_API, save_path=save_path)
 
     # 벤치마크 데이터 필터링 실행
-
-    # 필터링 실행
-    filter_save_path = KRX_BENCHMARK_VALID_FILTERING_PATH
+    filter_save_path = dataset_config["BENCHMARK_VALID_FILTERING_PATH"]
     benchmark_valid_filter = filter_benchmark_data(
         data=benchmark_valid,
         domain_threshold=2,
         quality_threshold=2, 
-        difficulty_threshold=1,
+        difficulty_threshold=2,
         save_path=filter_save_path
     )
 
@@ -641,29 +641,31 @@ def main():
 
     # 데이터 허깅페이스 업로드
     # 벤치마크 데이터
-    with open(KRX_BENCHMARK_VALID_PATH, "r", encoding="utf-8") as f:
+    with open(dataset_config["BENCHMARK_VALID_PATH"], "r", encoding="utf-8") as f:
         benchmark_valid = json.load(f)
     benchmark_valid_df = pd.DataFrame(benchmark_valid)
     dataset = Dataset.from_pandas(benchmark_valid_df)
-    dataset = dataset.add_column("FILE_NAME", [FILE_NAME] * len(dataset))
-    benchmark_id = f"GAYOEN/DOC_RAG_{FILE_NAME}_BENCHMARK"
+    dataset = dataset.add_column("FILE_NAME", [DATA_NAME] * len(dataset))
+    benchmark_id = f"GAYOEN/DOC_RAG_{DATA_NAME}_BENCHMARK"
     dataset.push_to_hub(benchmark_id, token=HUGGING_FACE_TOKEN)
     
-    print('✅ Upload to Huggingface Hub Done! - ', benchmark_id)
+    # print('✅ Upload to Huggingface Hub Done! - ', benchmark_id)
 
     # 벤치마크 필터링 데이터
-    with open(KRX_BENCHMARK_VALID_FILTERING_PATH, "r", encoding="utf-8") as f:
+    with open(dataset_config["BENCHMARK_VALID_FILTERING_PATH"], "r", encoding="utf-8") as f:
         benchmark_valid_filter = json.load(f)
     benchmark_valid_filter_df = pd.DataFrame(benchmark_valid_filter)
     dataset = Dataset.from_pandas(benchmark_valid_filter_df)
-    dataset = dataset.add_column("FILE_NAME", [FILE_NAME] * len(dataset))
-    benchmark_filter_id = f"GAYOEN/DOC_RAG_{FILE_NAME}_BENCHMARK_FILTERED"
+    dataset = dataset.add_column("FILE_NAME", [DATA_NAME] * len(dataset))
+    benchmark_filter_id = f"GAYOEN/DOC_RAG_{DATA_NAME}_BENCHMARK_FILTERED"
     dataset.push_to_hub(benchmark_filter_id, token=HUGGING_FACE_TOKEN)
-    print('✅ Upload to Huggingface Hub Done! - Filtered', benchmark_filter_id)
+    # print('✅ Upload to Huggingface Hub Done! - Filtered', benchmark_filter_id)
 
     # 링크 반환
     benchmark_link = f"https://huggingface.co/datasets/{benchmark_id}"
     benchmark_filter_link = f"https://huggingface.co/datasets/{benchmark_filter_id}"
+    print(f"🔗 벤치마크 링크: {benchmark_link}")
+    print(f"🔗 필터링된 벤치마크 링크: {benchmark_filter_link}")
     return {
         "benchmark_link": benchmark_link,
         "benchmark_filter_link": benchmark_filter_link
@@ -671,4 +673,3 @@ def main():
     
 if __name__ == "__main__":
     main()
-    

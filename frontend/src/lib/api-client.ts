@@ -13,12 +13,14 @@ export interface DocumentSummary {
   status: DocumentStatus;
   uploadedAt: string;
   processedAt?: string | null;
-  confidence?: number | null;
+  qualityScore?: number | null;
   pagesCount: number;
   analysisItemsCount: number;
-  recommendedProvider?: OcrProvider | null;
-  recommendationReason?: string | null;
-  selectedProvider?: OcrProvider | null;
+  recommendedStrategy?: OcrProvider | null;
+  recommendationNotes?: string | null;
+  selectedStrategy?: OcrProvider | null;
+  selectionRationale?: string | null;
+  ocrSpeedMsPerPage?: number | null;
   benchmarkUrl?: string | null;
 }
 
@@ -78,7 +80,7 @@ export interface DocumentInsightsPayload {
   pages: PagePreview[];
   agentStatuses: ReportAgentStatus[];
   mermaidChart?: string | null;
-  processingSummary?: string | null;
+  selectionRationale?: string | null;
 }
 
 interface ApiErrorBody {
@@ -112,12 +114,14 @@ function mapDocumentSummary(raw: any): DocumentSummary {
     status: raw.status,
     uploadedAt: raw.uploaded_at,
     processedAt: raw.processed_at ?? null,
-    confidence: raw.confidence ?? null,
+    qualityScore: raw.quality_score ?? null,
     pagesCount: raw.pages_count,
     analysisItemsCount: raw.analysis_items_count,
-    recommendedProvider: raw.recommended_provider ?? null,
-    recommendationReason: raw.recommendation_reason ?? null,
-    selectedProvider: raw.selected_provider ?? null,
+    recommendedStrategy: raw.recommended_strategy ?? null,
+    recommendationNotes: raw.recommendation_notes ?? null,
+    selectedStrategy: raw.selected_strategy ?? null,
+    selectionRationale: raw.selection_rationale ?? null,
+    ocrSpeedMsPerPage: raw.ocr_speed_ms_per_page ?? null,
     benchmarkUrl: raw.benchmark_url ?? null,
   };
 }
@@ -203,7 +207,7 @@ export async function fetchDocumentInsights(documentId: string): Promise<Documen
     pages: (data.pages ?? []).map(mapPagePreview),
     agentStatuses: (data.agent_statuses ?? []).map(mapReportAgentStatus),
     mermaidChart: data.mermaid_chart ?? null,
-    processingSummary: data.processing_summary ?? null,
+    selectionRationale: data.selection_rationale ?? null,
   };
 }
 
