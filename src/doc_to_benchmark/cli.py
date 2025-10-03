@@ -5,7 +5,7 @@ import uvicorn
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run the PyPI upload demo FastAPI server")
+    parser = argparse.ArgumentParser(description="Run the doc-to-benchmark FastAPI server")
     parser.add_argument("--host", default="0.0.0.0", help="Host interface to bind (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind (default: 8000)")
     parser.add_argument(
@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     uvicorn.run(
-        "pypi_test_app.main:app",
+        "doc_to_benchmark.main:app",
         host=args.host,
         port=args.port,
         reload=args.reload,

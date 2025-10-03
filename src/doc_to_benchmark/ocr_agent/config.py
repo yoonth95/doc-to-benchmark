@@ -22,10 +22,6 @@ def _resolve_project_root(candidate: Optional[PathType] = None) -> Path:
     if candidate:
         return Path(candidate).expanduser().resolve()
 
-    env_override = os.getenv("OCR_AGENT_BASE_DIR")
-    if env_override:
-        return Path(env_override).expanduser().resolve()
-
     return Path(__file__).parent.resolve()
 
 
@@ -54,11 +50,6 @@ def _apply_project_root(base_dir: Path) -> None:
 
 # 초기 경로 설정
 _apply_project_root(_resolve_project_root())
-
-# LLM API 설정 - Upstage Solar pro2
-SOLAR_API_KEY: Optional[str] = os.getenv("SOLAR_API_KEY")
-if not SOLAR_API_KEY:
-    print("[경고] SOLAR_API_KEY가 설정되지 않았습니다. 요청 헤더 또는 환경 변수로 전달하세요.")
 
 SOLAR_API_BASE = "https://api.upstage.ai/v1"
 SOLAR_MODEL = "solar-pro2"
@@ -196,10 +187,6 @@ def set_api_key(value: Optional[str]) -> None:
 
     global SOLAR_API_KEY
     SOLAR_API_KEY = value
-    if value:
-        os.environ["SOLAR_API_KEY"] = value
-    else:
-        os.environ.pop("SOLAR_API_KEY", None)
 
 
 def get_api_key() -> Optional[str]:

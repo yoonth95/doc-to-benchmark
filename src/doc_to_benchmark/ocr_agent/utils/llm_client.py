@@ -12,9 +12,6 @@ class SolarClient:
     """Upstage Solar pro2 API 클라이언트"""
     
     def __init__(self):
-        self.api_key = config.get_api_key()
-        if not self.api_key:
-            raise ValueError("SOLAR_API_KEY가 설정되지 않았습니다. 요청 헤더 또는 환경 변수를 확인하세요.")
         self.api_base = config.SOLAR_API_BASE
         self.model = config.SOLAR_MODEL
         self.max_tokens = config.SOLAR_MAX_TOKENS
@@ -49,7 +46,7 @@ class SolarClient:
         """
         
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {config.get_api_key()}",
             "Content-Type": "application/json"
         }
         

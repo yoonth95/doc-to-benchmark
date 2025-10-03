@@ -17,7 +17,7 @@ class UploadStorage:
     """Stores uploaded files on disk alongside metadata in JSON."""
 
     def __init__(self, base_directory: Path | None = None) -> None:
-        default_root = Path(os.getenv("PYPI_TEST_APP_STORAGE", Path.home() / ".pypi_test_app" / "uploads"))
+        default_root = Path(os.getenv("DOC_TO_BENCHMARK_STORAGE", Path.home() / ".doc_to_benchmark" / "uploads"))
         self.base_directory = base_directory or default_root
         self.metadata_path = self.base_directory / "metadata.json"
         self._lock = asyncio.Lock()

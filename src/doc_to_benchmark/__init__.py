@@ -1,4 +1,4 @@
-"""pypi_test_app package."""
+"""doc_to_benchmark package."""
 
 from .main import create_app
 

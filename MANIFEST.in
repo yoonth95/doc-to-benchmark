@@ -1,2 +1,2 @@
-recursive-include src/pypi_test_app/static *
+recursive-include src/doc_to_benchmark/static *
 include README.md

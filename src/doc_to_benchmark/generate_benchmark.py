@@ -31,7 +31,6 @@ SOLAR_MODEL = 'solar-pro2'
 LLAMA_MODEL = 'meta-llama/Llama-3.2-3B-Instruct'
 
 # Config: Data
-# Config: Data
 def select_dataset_config(dataset_name: str) -> Dict[str, str]:
     if dataset_name == "FINANCE":
         return {

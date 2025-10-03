@@ -19,11 +19,7 @@ class UpstageDocumentParseTool:
     - 고급 파싱 기능
     """
     
-    def __init__(self):
-        self.api_key = os.getenv("SOLAR_API_KEY")
-        if not self.api_key:
-            raise ValueError("SOLAR_API_KEY not found in environment variables")
-        
+    def __init__(self):        
         self.api_url = "https://api.upstage.ai/v1/document-ai/document-parse"
     
     def get_version(self) -> str:

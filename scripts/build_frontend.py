@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT / "frontend"
 DIST_DIR = FRONTEND_DIR / "dist"
-STATIC_DIR = ROOT / "src" / "pypi_test_app" / "static"
+STATIC_DIR = ROOT / "src" / "doc_to_benchmark" / "static"
 
 
 def run(command: list[str], cwd: Path) -> None:

@@ -19,6 +19,7 @@ export default function Mermaid({
 
   useEffect(() => {
     let cancelled = false;
+    let containerElement: HTMLDivElement | null = null;
 
     (async () => {
       try {
@@ -32,7 +33,8 @@ export default function Mermaid({
 
         const { svg } = await mermaid.render(`m_${id}`, chart);
         if (!cancelled && containerRef.current) {
-          containerRef.current.innerHTML = svg;
+          containerElement = containerRef.current;
+          containerElement.innerHTML = svg;
           setError(null);
         }
       } catch (e) {
@@ -42,7 +44,7 @@ export default function Mermaid({
 
     return () => {
       cancelled = true;
-      if (containerRef.current) containerRef.current.innerHTML = "";
+      if (containerElement) containerElement.innerHTML = "";
     };
   }, [chart, theme, securityLevel, id]);
 

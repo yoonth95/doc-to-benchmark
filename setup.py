@@ -30,13 +30,13 @@ def read_readme() -> str:
 
 
 setup(
-    name="pypi-upload-demo",
-    version="0.1.4",
+    name="doc-to-benchmark",
+    version="0.1.0",
     description="FastAPI + React file upload demo packaged for PyPI distribution",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
     author="Your Name",
-    url="https://example.com/pypi-upload-demo",
+    url="https://github.com/yoonth95/doc-to-benchmark",
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     include_package_data=True,
@@ -68,7 +68,7 @@ setup(
     python_requires=">=3.10",
     entry_points={
         "console_scripts": [
-            "pypi-test-app=pypi_test_app.cli:main",
+            "doc-to-benchmark=doc_to_benchmark.cli:main",
         ],
     },
     classifiers=[
