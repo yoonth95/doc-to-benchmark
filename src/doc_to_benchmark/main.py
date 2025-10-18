@@ -9,7 +9,6 @@ from fastapi.staticfiles import StaticFiles
 
 from .api import router
 from .database import build_database_url, create_engine, create_sessionmaker, initialize_database
-from .seed_data import seed_if_empty
 from .storage import UploadStorage
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -50,9 +49,6 @@ def create_app() -> FastAPI:
     async def _startup() -> None:
         await storage.ensure_ready()
         await initialize_database(engine)
-        async with session_factory() as session:
-            await seed_if_empty(session)
-            await session.commit()
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:

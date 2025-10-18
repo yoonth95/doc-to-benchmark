@@ -6,7 +6,7 @@ import uvicorn
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the doc-to-benchmark FastAPI server")
-    parser.add_argument("--host", default="0.0.0.0", help="Host interface to bind (default: 0.0.0.0)")
+    parser.add_argument("--host", default="localhost", help="Host interface to bind (default: localhost)")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind (default: 8000)")
     parser.add_argument(
         "--reload",

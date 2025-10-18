@@ -18,7 +18,7 @@ Upstage Solar LLM과 상용/오픈소스 OCR 제공자를 조합해 문서를 �
   - SQLAlchemy 2.x + SQLite (비동기 엔진 `sqlite+aiosqlite`)
   - `/api` 네임스페이스에 문서 목록, 분석 항목, 인사이트, 전략 변경, 업로드 API 제공
   - 업로드 시 `UploadStorage`가 파일과 메타데이터를 디스크에 기록하고, `ocr_pipeline.process_document`가 LangGraph OCR 에이전트를 동기 실행하여 DB에 결과를 반영
-  - 앱 시작 시 마이그레이션 유사 스키마 보정과 샘플 데이터 시드 수행 (`seed_if_empty`)
+  - 앱 시작 시 마이그레이션 유사 스키마 보정과 스토리지 준비만 수행 (샘플 데이터는 별도 제공되지 않음)
 - **OCR Agent (src/doc_to_benchmark/ocr_agent)**
   - LangGraph로 구성된 문서 처리 그래프, Upstage Solar LLM을 이용한 Judge 단계, PDF 정규화 도구(pdfplumber, pdfminer, pypdfium2 등)를 포함
   - `C드라이브/사용자/<사용자이름>/.doc_to_benchmark/ocr_agent/data` 경로에 리포트/로그/중간 산출물을 보관
