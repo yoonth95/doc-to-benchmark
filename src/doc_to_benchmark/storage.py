@@ -85,3 +85,35 @@ class UploadStorage:
     async def _write_metadata(self, data: list[dict]) -> None:
         serialized = json.dumps(data, ensure_ascii=False, indent=2)
         await asyncio.to_thread(self.metadata_path.write_text, serialized, encoding="utf-8")
+
+    async def remove_entry(
+        self,
+        *,
+        stored_name: str | None = None,
+        metadata_id: str | None = None,
+    ) -> None:
+        """Delete a stored file and remove its metadata record."""
+
+        await self.ensure_ready()
+
+        async with self._lock:
+            entries = await self._read_metadata()
+            filtered: list[dict] = []
+            removed = False
+            for item in entries:
+                by_id = metadata_id and item.get("id") == metadata_id
+                by_name = stored_name and item.get("stored_name") == stored_name
+                if by_id or by_name:
+                    removed = True
+                    continue
+                filtered.append(item)
+            if removed:
+                await self._write_metadata(filtered)
+
+        if stored_name:
+            target = self.base_directory / stored_name
+            if target.exists():
+                try:
+                    await asyncio.to_thread(target.unlink)
+                except FileNotFoundError:
+                    pass

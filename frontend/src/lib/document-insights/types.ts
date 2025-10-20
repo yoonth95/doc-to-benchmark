@@ -87,6 +87,7 @@ export interface DocumentInsightsPayload {
   agentStatuses: ReportAgentStatus[];
   mermaidChart?: string | null;
   selectionRationale?: string | null;
+  progressStages?: Record<string, string>;
 }
 
 export interface RawDocumentInsightsPayload {

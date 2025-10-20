@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import MermaidContent from "@/components/report/MermaidContent";
 import {
@@ -22,21 +23,13 @@ import type {
   PageProviderResult,
   ProviderEvaluation,
 } from "@/lib/document-insights";
-import {
-  fetchDocumentInsights,
-  updateDocumentSelection,
-} from "@/lib/document-insights";
+import { fetchDocumentInsights, updateDocumentSelection } from "@/lib/document-insights";
 import type { DocumentSummary, OcrProvider } from "@/lib/common";
+import { useDocumentProgressStream } from "@/lib/events";
 
-type SummaryResult =
-  | { kind: "recommended"; value: number }
-  | { kind: "range"; min: number; max: number }
-  | null;
+type SummaryResult = { kind: "recommended"; value: number } | { kind: "range"; min: number; max: number } | null;
 
-const providerDisplay = (
-  provider?: OcrProvider | null,
-  evaluations: ProviderEvaluation[] = [],
-) => {
+const providerDisplay = (provider?: OcrProvider | null, evaluations: ProviderEvaluation[] = []) => {
   if (!provider) return "-";
   const match = evaluations.find((item) => item.provider === provider);
   return match?.displayName ?? provider;
@@ -55,6 +48,7 @@ const buildProviderRows = (
   currentPage: PagePreview | undefined,
   selectedStrategy?: OcrProvider | null,
   recommendedStrategy?: OcrProvider | null,
+  qualityNotes?: string | null
 ): ProviderRow[] => {
   if (!evaluations.length) {
     return [];
@@ -79,13 +73,14 @@ const buildProviderRows = (
       isMostAffordable: evaluation.isMostAffordable,
       isSelected: selectedStrategy === evaluation.provider,
       isRecommended: recommendedStrategy === evaluation.provider,
+      qualityNotes: evaluation.qualityNotes ? JSON.parse(evaluation.qualityNotes) : null,
     };
   });
 };
 
 const computeTimeSummary = (
   evaluations: ProviderEvaluation[],
-  recommendedEvaluation: ProviderEvaluation | null,
+  recommendedEvaluation: ProviderEvaluation | null
 ): SummaryResult => {
   if (recommendedEvaluation) {
     return { kind: "recommended", value: recommendedEvaluation.estimatedTotalTimeMs };
@@ -101,14 +96,12 @@ const computeTimeSummary = (
 
 const computeCostSummary = (
   evaluations: ProviderEvaluation[],
-  recommendedEvaluation: ProviderEvaluation | null,
+  recommendedEvaluation: ProviderEvaluation | null
 ): SummaryResult => {
   if (recommendedEvaluation && recommendedEvaluation.estimatedTotalCost != null) {
     return { kind: "recommended", value: recommendedEvaluation.estimatedTotalCost };
   }
-  const costs = evaluations
-    .map((item) => item.estimatedTotalCost)
-    .filter((value): value is number => value != null);
+  const costs = evaluations.map((item) => item.estimatedTotalCost).filter((value): value is number => value != null);
   if (!costs.length) {
     return null;
   }
@@ -122,6 +115,7 @@ const DocumentInsights = () => {
   const { documentId } = useParams<{ documentId: string }>();
   const queryClient = useQueryClient();
   const [selectedPageIndex, setSelectedPageIndex] = useState(0);
+  useDocumentProgressStream(documentId);
 
   const { data, isLoading, isError, error } = useQuery<DocumentInsightsPayload>({
     queryKey: ["document-insights", documentId],
@@ -129,26 +123,33 @@ const DocumentInsights = () => {
     enabled: Boolean(documentId),
   });
 
+  const lastStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentStatus = data?.document.status;
+    if (!documentId || !currentStatus) return;
+    if (lastStatusRef.current === currentStatus) return;
+    if (currentStatus === "completed" || currentStatus === "error") {
+      queryClient.invalidateQueries({ queryKey: ["document-insights", documentId] });
+    }
+    lastStatusRef.current = currentStatus;
+  }, [data?.document.status, documentId, queryClient]);
+
   const selectionMutation = useMutation({
     mutationFn: (provider: OcrProvider) => updateDocumentSelection(documentId ?? "", provider),
     onSuccess: (summary: DocumentSummary) => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
-      queryClient.setQueryData(
-        ["document-insights", documentId],
-        (prev: DocumentInsightsPayload | undefined) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            document: {
-              ...prev.document,
-              ...summary,
-              recommendedStrategy: summary.recommendedStrategy ?? prev.document.recommendedStrategy,
-              recommendationNotes:
-                summary.recommendationNotes ?? prev.document.recommendationNotes,
-            },
-          };
-        },
-      );
+      queryClient.setQueryData(["document-insights", documentId], (prev: DocumentInsightsPayload | undefined) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          document: {
+            ...prev.document,
+            ...summary,
+            recommendedStrategy: summary.recommendedStrategy ?? prev.document.recommendedStrategy,
+            recommendationNotes: summary.recommendationNotes ?? prev.document.recommendationNotes,
+          },
+        };
+      });
       queryClient.invalidateQueries({ queryKey: ["document-insights", documentId] });
       toast.success("선택한 API를 업데이트했습니다");
     },
@@ -165,22 +166,13 @@ const DocumentInsights = () => {
   const totalPages = pages.length;
   const currentPage = pages[selectedPageIndex];
 
-  const providerEvaluationsList = useMemo(
-    () => data?.providerEvaluations ?? [],
-    [data?.providerEvaluations],
-  );
+  const providerEvaluationsList = useMemo(() => data?.providerEvaluations ?? [], [data?.providerEvaluations]);
   const selectedStrategy = data?.document.selectedStrategy ?? null;
   const recommendedStrategy = data?.document.recommendedStrategy ?? null;
 
   const providerRows = useMemo<ProviderRow[]>(
-    () =>
-      buildProviderRows(
-        providerEvaluationsList,
-        currentPage,
-        selectedStrategy,
-        recommendedStrategy,
-      ),
-    [providerEvaluationsList, currentPage, selectedStrategy, recommendedStrategy],
+    () => buildProviderRows(providerEvaluationsList, currentPage, selectedStrategy, recommendedStrategy),
+    [providerEvaluationsList, currentPage, selectedStrategy, recommendedStrategy]
   );
 
   const documentPagesCount = data?.document?.pagesCount ?? pages.length;
@@ -197,20 +189,16 @@ const DocumentInsights = () => {
 
   const totalTimeSummary = useMemo(
     () => computeTimeSummary(providerEvaluationsList, recommendedEvaluation),
-    [providerEvaluationsList, recommendedEvaluation],
+    [providerEvaluationsList, recommendedEvaluation]
   );
 
   const totalCostSummary = useMemo(
     () => computeCostSummary(providerEvaluationsList, recommendedEvaluation),
-    [providerEvaluationsList, recommendedEvaluation],
+    [providerEvaluationsList, recommendedEvaluation]
   );
 
   const metricEvaluation = recommendedEvaluation ?? selectedEvaluation ?? null;
-  const metricContextLabel = recommendedEvaluation
-    ? "추천된 API 기준"
-    : selectedEvaluation
-      ? "선택한 API 기준"
-      : null;
+  const metricContextLabel = recommendedEvaluation ? "추천된 API 기준" : selectedEvaluation ? "선택한 API 기준" : null;
 
   const handlePageChange = (direction: "prev" | "next") => {
     if (!pages.length) return;
@@ -230,6 +218,8 @@ const DocumentInsights = () => {
     }
     selectionMutation.mutate(provider);
   };
+
+  const stageEntries = useMemo(() => buildStageEntries(data?.progressStages), [data?.progressStages]);
 
   if (!documentId) {
     return (
@@ -298,12 +288,75 @@ const DocumentInsights = () => {
         isMutating={selectionMutation.isPending}
       />
 
-      <section className="grid gap-4 lg:grid-cols-[1fr_1.8fr]">
-        <AgentStatusList statuses={agentStatuses} />
-        <MermaidContent chart={mermaidChart} />
+      <section className="grid gap-4">
+        {/* <div className="flex flex-col gap-4">
+          <StageProgressCard stages={stageEntries} />
+          <AgentStatusList statuses={agentStatuses} />
+        </div> */}
+        <MermaidContent mermaidChart={mermaidChart} />
       </section>
     </DocumentInsightsLayout>
   );
 };
 
 export default DocumentInsights;
+
+interface StageEntry {
+  stage: string;
+  status: string;
+}
+
+const stageOrder = ["uploaded", "extraction", "validation", "judge", "report"] as const;
+
+const stageLabelMap: Record<string, string> = {
+  uploaded: "업로드",
+  extraction: "추출",
+  validation: "검증",
+  judge: "평가",
+  report: "리포트",
+};
+
+const stageStatusLabel: Record<string, string> = {
+  pending: "대기",
+  running: "진행 중",
+  completed: "완료",
+  failed: "실패",
+};
+
+const stageStatusClass: Record<string, string> = {
+  pending: "bg-muted text-muted-foreground",
+  running: "bg-primary/10 text-primary",
+  completed: "bg-secondary text-secondary-foreground",
+  failed: "bg-error text-error-foreground",
+};
+
+function buildStageEntries(progressStages: Record<string, string> | undefined): StageEntry[] {
+  const stages = progressStages ?? {};
+  return stageOrder.map((stage) => ({
+    stage,
+    status: stages[stage] ?? "pending",
+  }));
+}
+
+const StageProgressCard = ({ stages }: { stages: StageEntry[] }) => (
+  <Card className="flex flex-col">
+    <CardHeader>
+      <CardTitle className="text-lg font-semibold text-foreground">단계 진행 상황</CardTitle>
+    </CardHeader>
+    <CardContent className="space-y-3">
+      {stages.map((entry) => (
+        <div
+          key={entry.stage}
+          className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
+        >
+          <div>
+            <p className="text-sm font-semibold text-foreground">{stageLabelMap[entry.stage] ?? entry.stage}</p>
+          </div>
+          <Badge variant="outline" className={`px-3 ${stageStatusClass[entry.status] ?? ""}`}>
+            {stageStatusLabel[entry.status] ?? entry.status}
+          </Badge>
+        </div>
+      ))}
+    </CardContent>
+  </Card>
+);

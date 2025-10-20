@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 import os
 from pathlib import Path
+from sse_starlette import EventSourceResponse
 
 from ..models import (
     AnalysisItem,
@@ -31,8 +31,10 @@ from ..schemas import (
     ReportAgentStatusOut,
     UploadResponse,
 )
-from ..ocr_pipeline import process_document
 from ..storage import UploadStorage
+from ..services.events import SseBroker, SseEvent
+from ..services.status import document_status_to_stream_label
+from ..services.worker import OcrTask
 from .dependencies import get_session, get_storage
 
 from anyio import to_thread
@@ -520,7 +522,7 @@ async def upload_file(
         content_type=file.content_type,
         extension=metadata.extension,
         size_bytes=metadata.size_bytes,
-        status=DocumentStatus.PROCESSING,
+        status=DocumentStatus.UPLOADED,
         uploaded_at=metadata.uploaded_at,
         pages_count=pages_count,
     )
@@ -528,35 +530,28 @@ async def upload_file(
     await session.commit()
     await session.refresh(document)
 
-    try:
-        await process_document(
-            document=document,
-            file_path=file_path,
-            storage=storage,
-            session=session,
+    broker: SseBroker = request.app.state.sse_broker  # type: ignore[attr-defined]
+    await broker.publish(
+        SseEvent(
+            event="document-status",
+            data={
+                "documentId": document.id,
+                "status": document_status_to_stream_label(document.status),
+                "uploadedAt": document.uploaded_at,
+                "pagesCount": document.pages_count,
+            },
+        ),
+        document_id=document.id,
+    )
+
+    task_sender = request.app.state.ocr_task_sender  # type: ignore[attr-defined]
+    await task_sender.send(
+        OcrTask(
+            document_id=document.id,
+            stored_name=document.stored_name,
             api_key=api_key,
         )
-        await session.commit()
-    except Exception as exc:  # noqa: BLE001
-        await session.rollback()
-        document = await session.get(Document, document.id)
-        if document is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="OCR 처리 중 알 수 없는 오류가 발생했습니다.",
-            ) from exc
-
-        document.status = DocumentStatus.FAILED
-        document.selection_rationale = f"OCR 처리 실패: {exc}"
-        document.processed_at = datetime.utcnow()
-        document.recommended_strategy = None
-        document.recommendation_notes = None
-        document.selected_strategy = None
-        document.quality_score = None
-        document.ocr_speed_ms_per_page = None
-        await session.commit()
-    finally:
-        await session.refresh(document)
+    )
 
     analysis_items_count = await session.scalar(
         select(func.count(AnalysisItem.id)).where(AnalysisItem.document_id == document.id)
@@ -571,3 +566,49 @@ async def upload_file(
 @router.get("/uploads", response_model=DocumentListResponse)
 async def legacy_uploads(session: AsyncSession = Depends(get_session)) -> DocumentListResponse:
     return await list_documents(session)
+
+
+@router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    request: Request,
+    document_id: str,
+    storage: UploadStorage = Depends(get_storage),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    document = await session.get(Document, document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="문서를 찾을 수 없습니다.")
+
+    stored_name = document.stored_name
+    await session.delete(document)
+    await session.commit()
+
+    await storage.remove_entry(stored_name=stored_name, metadata_id=document_id)
+
+    broker: SseBroker = request.app.state.sse_broker  # type: ignore[attr-defined]
+    await broker.publish(
+        SseEvent(event="document-deleted", data={"documentId": document_id}),
+        document_id=document_id,
+    )
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@router.get("/documents/events")
+async def stream_documents(request: Request) -> EventSourceResponse:
+    broker: SseBroker = request.app.state.sse_broker  # type: ignore[attr-defined]
+
+    async def iterator():
+        async for event in broker.subscribe_all():
+            yield event.as_message()
+
+    return EventSourceResponse(iterator(), ping=15.0)
+
+@router.get("/documents/{document_id}/events")
+async def stream_document(request: Request, document_id: str) -> EventSourceResponse:
+    broker: SseBroker = request.app.state.sse_broker  # type: ignore[attr-defined]
+
+    async def iterator():
+        async for event in broker.subscribe_document(document_id):
+            yield event.as_message()
+
+    return EventSourceResponse(iterator(), ping=15.0)

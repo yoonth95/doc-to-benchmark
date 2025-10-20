@@ -7,12 +7,7 @@ type MermaidProps = {
   securityLevel?: "strict" | "loose" | "antiscript" | "sandbox";
 };
 
-export default function Mermaid({
-  chart,
-  theme = "default",
-  className,
-  securityLevel = "strict",
-}: MermaidProps) {
+export default function Mermaid({ chart, theme = "default", className, securityLevel = "strict" }: MermaidProps) {
   const id = useId().replace(/:/g, "_");
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +48,7 @@ export default function Mermaid({
       {error ? (
         <pre className="text-red-600 whitespace-pre-wrap">{error}</pre>
       ) : (
-        <div ref={containerRef} aria-label="mermaid-graph" />
+        <div ref={containerRef} aria-label="mermaid-graph" className="flex justify-center items-center" />
       )}
     </div>
   );

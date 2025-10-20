@@ -3,7 +3,7 @@ LangGraph 그래프 정의
 멀티 에이전트 워크플로우 구성
 """
 
-from typing import Dict, Any, List
+from typing import Any, Callable, Dict, List, Optional
 from langgraph.graph import StateGraph, END
 from .state import DocumentState, update_stage
 from . import config
@@ -12,9 +12,19 @@ from . import config
 class DocumentProcessingGraph:
     """문서 처리 그래프 정의"""
     
-    def __init__(self):
+    def __init__(self, progress_callback: Optional[Callable[..., None]] = None):
         self.graph = StateGraph(DocumentState)
+        self._progress_callback = progress_callback
         self._build_graph()
+
+    def _emit(self, event: str, stage: str, description: Optional[str] = None) -> None:
+        if self._progress_callback is None:
+            return
+        try:
+            self._progress_callback(event, stage, description=description)
+        except TypeError:
+            # Backwards compatibility if callback expects only (event, stage)
+            self._progress_callback(event, stage)
     
     def _build_graph(self):
         """그래프 노드 및 엣지 구성"""
@@ -69,15 +79,21 @@ class DocumentProcessingGraph:
     def basic_extraction_node(self, state: DocumentState) -> DocumentState:
         """1단계: 기본 추출 노드"""
         from .agents.basic_extraction_agent import BasicExtractionAgent
-        
+
         print(f"[1단계] 기본 추출 시작: {state['document_name']}")
-        
+        self._emit("stage_started", "extraction")
+
         try:
             agent = BasicExtractionAgent()
             state = agent.run(state)
             state = update_stage(state, "validation")
             print(f"[OK] 기본 추출 완료: {len(state['extraction_results'])}개 결과")
-            
+            self._emit(
+                "stage_completed",
+                "extraction",
+                description=f"추출 {len(state['extraction_results'])}건",
+            )
+
         except Exception as e:
             print(f"[ERROR] 기본 추출 실패: {str(e)}")
             from .state import add_error
@@ -87,20 +103,27 @@ class DocumentProcessingGraph:
                 "error_type": type(e).__name__
             })
             state = update_stage(state, "failed")
-        
+            self._emit("stage_failed", "extraction", description=str(e))
+
         return state
-    
+
     def validation_node(self, state: DocumentState) -> DocumentState:
         """2단계: 유효성 검증 노드"""
         from .agents.validation_agent import ValidationAgent
-        
+
         print(f"[2단계] 유효성 검증 시작")
-        
+        self._emit("stage_started", "validation")
+
         try:
             agent = ValidationAgent()
             state = agent.run(state)
             print(f"[OK] 검증 완료: {len(state['validation_results'])}개 통과")
-            
+            self._emit(
+                "stage_completed",
+                "validation",
+                description=f"검증 {len(state['validation_results'])}건",
+            )
+
         except Exception as e:
             print(f"[ERROR] 검증 실패: {str(e)}")
             from .state import add_error
@@ -109,7 +132,8 @@ class DocumentProcessingGraph:
                 "error": str(e),
                 "error_type": type(e).__name__
             })
-        
+            self._emit("stage_failed", "validation", description=str(e))
+
         return state
     
     def fallback_handler_node(self, state: DocumentState) -> DocumentState:
@@ -139,13 +163,19 @@ class DocumentProcessingGraph:
         from .agents.judge_agent import JudgeAgent
         
         print(f"[3단계] LLM Judge 평가 시작")
-        
+        self._emit("stage_started", "judge")
+
         try:
             agent = JudgeAgent()
             state = agent.run(state)
             state = update_stage(state, "report")
             print(f"[OK] 평가 완료: {len(state['judge_results'])}개 결과")
-            
+            self._emit(
+                "stage_completed",
+                "judge",
+                description=f"판단 {len(state['judge_results'])}건",
+            )
+
         except Exception as e:
             print(f"[ERROR] 평가 실패: {str(e)}")
             from .state import add_error
@@ -155,21 +185,24 @@ class DocumentProcessingGraph:
                 "error_type": type(e).__name__
             })
             state = update_stage(state, "failed")
-        
+            self._emit("stage_failed", "judge", description=str(e))
+
         return state
-    
+
     def report_generation_node(self, state: DocumentState) -> DocumentState:
         """리포트 생성 노드"""
         from .agents.report_generator import ReportGenerator
-        
+
         print(f"[리포트] 리포트 생성 중...")
-        
+        self._emit("stage_started", "report")
+
         try:
             generator = ReportGenerator()
             state = generator.run(state)
             state = update_stage(state, "completed")
             print(f"[OK] 리포트 생성 완료")
-            
+            self._emit("stage_completed", "report", description="리포트 완료")
+
         except Exception as e:
             print(f"[ERROR] 리포트 생성 실패: {str(e)}")
             from .state import add_error
@@ -179,7 +212,8 @@ class DocumentProcessingGraph:
                 "error_type": type(e).__name__
             })
             state = update_stage(state, "failed")
-        
+            self._emit("stage_failed", "report", description=str(e))
+
         return state
     
     def error_handler_node(self, state: DocumentState) -> DocumentState:
@@ -248,9 +282,11 @@ class DocumentProcessingGraph:
         return self.graph.compile()
 
 
-def create_processing_graph() -> Any:
+def create_processing_graph(
+    progress_callback: Optional[Callable[..., None]] = None,
+) -> Any:
     """문서 처리 그래프 생성 및 컴파일"""
-    graph_builder = DocumentProcessingGraph()
+    graph_builder = DocumentProcessingGraph(progress_callback=progress_callback)
     return graph_builder.compile()
 
 

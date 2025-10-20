@@ -1,4 +1,4 @@
-export type DocumentStatus = "uploaded" | "processing" | "processed" | "failed";
+export type DocumentStatus = "uploaded" | "ocr_processing" | "completed" | "error";
 
 export type OcrProvider = string;
 
