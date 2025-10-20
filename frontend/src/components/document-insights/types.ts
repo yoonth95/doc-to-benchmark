@@ -13,4 +13,21 @@ export interface ProviderRow {
   isMostAffordable: boolean;
   isSelected: boolean;
   isRecommended: boolean;
+  qualityNotes: QualityNotes | null;
+}
+
+export interface QualityNotes {
+  judge_grade: string;
+  judge_rationale: string;
+  judge_scores: {
+    S_read: number;
+    S_sent: number;
+    S_noise: number;
+    S_table: number;
+    S_fig: number;
+  };
+  llm_confidence: number;
+  llm_reason: string;
+  llm_issues: string[];
+  fallback_path: string[];
 }

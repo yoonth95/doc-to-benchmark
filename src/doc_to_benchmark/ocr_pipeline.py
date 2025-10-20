@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-from anyio import to_thread
+from anyio import from_thread, to_thread
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +17,7 @@ from .models import (
     PageOcrResult,
     ReportAgentStatus,
 )
+# Avoid circular imports during typing
 from .ocr_agent import create_initial_document_state, create_processing_graph
 from .ocr_agent import config as agent_config
 from .ocr_agent.state import (
@@ -29,14 +30,37 @@ from .ocr_agent.state import (
     ValidationResult,
 )
 from .storage import UploadStorage
+from .services.progress import OcrProgressReporter
 
 
-def _run_agent(document_path: Path, agent_root: Path) -> DocumentState:
+def _run_agent(
+    document_path: Path,
+    agent_root: Path,
+    progress: Optional[OcrProgressReporter] = None,
+) -> DocumentState:
     """Synchronously execute the OCR agent and return the final state."""
 
     agent_config.set_project_root(agent_root, ensure_directories=True)
     state = create_initial_document_state(str(document_path))
-    graph = create_processing_graph()
+    if progress is None:
+        progress_callback = None
+    else:
+
+        async def _stage_completed(stage_name: str, desc: Optional[str]) -> None:
+            await progress.stage_completed(stage_name, description=desc)
+
+        async def _stage_failed(stage_name: str, err: str) -> None:
+            await progress.stage_failed(stage_name, error=err)
+
+        def progress_callback(event: str, stage: str, *, description: Optional[str] = None) -> None:
+            if event == "stage_started":
+                from_thread.run(progress.stage_started, stage)
+            elif event == "stage_completed":
+                from_thread.run(_stage_completed, stage, description)
+            elif event == "stage_failed":
+                from_thread.run(_stage_failed, stage, description or "")
+
+    graph = create_processing_graph(progress_callback=progress_callback)
     return graph.invoke(state)
 
 
@@ -47,6 +71,7 @@ async def process_document(
     storage: UploadStorage,
     session: AsyncSession,
     api_key: Optional[str] = None,
+    progress: Optional[OcrProgressReporter] = None,
 ) -> DocumentState:
     """Run the OCR pipeline with the provided API key and persist results."""
 
@@ -54,7 +79,7 @@ async def process_document(
     if api_key:
         agent_config.set_api_key(api_key)
     try:
-        state = await to_thread.run_sync(_run_agent, file_path, agent_root)
+        state = await to_thread.run_sync(_run_agent, file_path, agent_root, progress)
         await _apply_state(session=session, document=document, state=state)
         return state
     finally:

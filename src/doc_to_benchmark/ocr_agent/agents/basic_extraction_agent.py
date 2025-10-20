@@ -126,6 +126,13 @@ class BasicExtractionAgent:
         start_time = time.time()
         
         try:
+            if tool_name.startswith("upstage"):
+                api_key = config.get_api_key()
+                if not api_key:
+                    print("[WARN] Upstage API Key 미설정으로 upstage 도구를 건너뜁니다.")
+                    return None
+                setattr(tool, "api_key", api_key)
+
             # 전체 추출 실행 (페이지 수 확인용)
             result = tool.extract(document_path)
             total_pages = len(result["pages"])

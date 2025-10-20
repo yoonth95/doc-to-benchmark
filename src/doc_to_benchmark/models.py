@@ -13,9 +13,9 @@ class DocumentStatus(str, enum.Enum):
     """Workflow status for an uploaded document."""
 
     UPLOADED = "uploaded"
-    PROCESSING = "processing"
-    PROCESSED = "processed"
-    FAILED = "failed"
+    PROCESSING = "ocr_processing"
+    PROCESSED = "completed"
+    FAILED = "error"
 
 
 class Document(Base):

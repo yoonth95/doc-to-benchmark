@@ -16,9 +16,7 @@ const DocumentInfoCards = ({ document }: DocumentInfoCardsProps) => (
         <CardTitle className="text-sm font-medium text-muted-foreground">파일명</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="break-words text-base font-semibold text-foreground">
-          {document.originalName}
-        </p>
+        <p className="break-words text-base font-semibold text-foreground">{document.originalName}</p>
         <p className="mt-2 text-xs text-muted-foreground">저장 이름: {document.storedName}</p>
         {document.benchmarkUrl && (
           <Button variant="link" size="sm" asChild className="px-0 text-primary">
@@ -40,19 +38,24 @@ const DocumentInfoCards = ({ document }: DocumentInfoCardsProps) => (
     </Card>
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-medium text-muted-foreground">처리 일시</CardTitle>
+        <CardTitle className="text-sm font-medium text-muted-foreground">완료 일시</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
         <div className="flex items-center gap-2 text-sm text-foreground">
           <CalendarDays className="h-4 w-4 text-muted-foreground" />
           <span>{formatDateTime(document.processedAt)}</span>
         </div>
-        <p className="text-xs text-muted-foreground">
-          상태: {document.status === "processed" ? "처리 완료" : document.status}
-        </p>
+        <p className="text-xs text-muted-foreground">상태: {statusLabel[document.status]}</p>
       </CardContent>
     </Card>
   </div>
 );
 
 export default DocumentInfoCards;
+
+const statusLabel: Record<DocumentSummary["status"], string> = {
+  uploaded: "업로드 완료",
+  ocr_processing: "OCR 진행 중",
+  completed: "완료",
+  error: "오류",
+};

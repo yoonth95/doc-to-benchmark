@@ -33,3 +33,25 @@ export async function fetchAnalysisItems(): Promise<AnalysisItem[]> {
   const data = await handleResponse<RawAnalysisItemsResponse>(response);
   return data.items.map(mapAnalysisItem);
 }
+
+export async function deleteDocument(documentId: string): Promise<void> {
+  const response = await fetch(`/api/documents/${documentId}`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    let message = "문서 삭제에 실패했습니다";
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      if (payload?.detail) {
+        message = payload.detail;
+      }
+    } catch {
+      const fallback = await response.text();
+      if (fallback) {
+        message = fallback;
+      }
+    }
+    throw new Error(message);
+  }
+}

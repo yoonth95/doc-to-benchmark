@@ -2,14 +2,7 @@ import { ArrowLeft, Sparkles, Star } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import type { PagePreview } from "@/lib/document-insights";
 import type { ProviderRow } from "./types";
@@ -53,17 +46,10 @@ const ProviderComparisonCard = ({
           )}
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Button
-            size="icon"
-            variant="outline"
-            onClick={() => onPageChange("prev")}
-            disabled={selectedPageIndex === 0}
-          >
+          <Button size="icon" variant="outline" onClick={() => onPageChange("prev")} disabled={selectedPageIndex === 0}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <Badge variant="outline">
-            {totalPages ? `${selectedPageIndex + 1} / ${totalPages}` : "-"}
-          </Badge>
+          <Badge variant="outline">{totalPages ? `${selectedPageIndex + 1} / ${totalPages}` : "-"}</Badge>
           <Button
             size="icon"
             variant="outline"
@@ -84,9 +70,7 @@ const ProviderComparisonCard = ({
             />
           ) : (
             <div className="text-center text-sm text-muted-foreground">
-              {totalPages > 0
-                ? "페이지 이미지가 아직 준비되지 않았습니다."
-                : "표시할 페이지 데이터가 없습니다."}
+              {totalPages > 0 ? "페이지 이미지가 아직 준비되지 않았습니다." : "표시할 페이지 데이터가 없습니다."}
             </div>
           )}
         </div>
@@ -98,15 +82,10 @@ const ProviderComparisonCard = ({
                   <TableHead className="w-[200px] whitespace-nowrap">API 라이브러리</TableHead>
                   <TableHead className="w-[300px] whitespace-nowrap">텍스트 추출 결과</TableHead>
                   <TableHead className="w-[100px] whitespace-nowrap text-center">유효성</TableHead>
-                  <TableHead className="w-[120px] whitespace-nowrap text-center">
-                    품질 (LLM-Judge)
-                  </TableHead>
-                  <TableHead className="w-[140px] whitespace-nowrap text-center">
-                    페이지별 처리 시간
-                  </TableHead>
-                  <TableHead className="w-[140px] whitespace-nowrap text-center">
-                    페이지별 비용
-                  </TableHead>
+                  <TableHead className="w-[120px] whitespace-nowrap text-center">품질 (LLM-Judge)</TableHead>
+                  <TableHead className="w-[140px] whitespace-nowrap text-center">완료 시간</TableHead>
+                  <TableHead className="w-[140px] whitespace-nowrap text-center">비용</TableHead>
+                  <TableHead className="w-[300px] whitespace-nowrap text-center">LLM 설명</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -122,18 +101,18 @@ const ProviderComparisonCard = ({
                       row.isBestQuality && row.isFastest && row.isMostAffordable
                         ? "border-l-4 border-primary bg-primary/10"
                         : row.isBestQuality && row.isFastest
-                          ? "border-l-4 border-lime-400 bg-lime-50/60"
-                          : row.isBestQuality
-                            ? "border-l-4 border-amber-400 bg-amber-50/60"
-                            : row.isFastest
-                              ? "border-l-4 border-emerald-400 bg-emerald-50/60"
-                              : row.isMostAffordable
-                                ? "border-l-4 border-sky-400 bg-sky-50/60"
-                                : row.isSelected
-                                  ? "border-l-4 border-secondary bg-secondary/20"
-                                  : row.isRecommended
-                                    ? "border-l-4 border-primary bg-primary/10"
-                                    : "";
+                        ? "border-l-4 border-lime-400 bg-lime-50/60"
+                        : row.isBestQuality
+                        ? "border-l-4 border-amber-400 bg-amber-50/60"
+                        : row.isFastest
+                        ? "border-l-4 border-emerald-400 bg-emerald-50/60"
+                        : row.isMostAffordable
+                        ? "border-l-4 border-sky-400 bg-sky-50/60"
+                        : row.isSelected
+                        ? "border-l-4 border-secondary bg-secondary/20"
+                        : row.isRecommended
+                        ? "border-l-4 border-primary bg-primary/10"
+                        : "";
 
                     return (
                       <TableRow key={row.provider} className={rowAccent}>
@@ -158,10 +137,7 @@ const ProviderComparisonCard = ({
                                 </Badge>
                               )}
                               {row.isFastest && (
-                                <Badge
-                                  className="bg-emerald-500 text-emerald-950"
-                                  variant="secondary"
-                                >
+                                <Badge className="bg-emerald-500 text-emerald-950" variant="secondary">
                                   최단 시간
                                 </Badge>
                               )}
@@ -187,6 +163,9 @@ const ProviderComparisonCard = ({
                         </TableCell>
                         <TableCell className="w-[140px] align-top text-center text-sm text-foreground">
                           {formatCost(row.costPerPage)}
+                        </TableCell>
+                        <TableCell className="w-[300px] align-top">
+                          <ClampedTextCell text={row.qualityNotes?.llm_reason ?? "-"} />
                         </TableCell>
                       </TableRow>
                     );

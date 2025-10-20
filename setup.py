@@ -64,6 +64,7 @@ setup(
         "faiss-cpu>=1.7.4",
         "pydantic>=2.5.2",
         "openai>=1.42.1",
+        "sse-starlette>=3.0.2",
     ],
     python_requires=">=3.10",
     entry_points={
