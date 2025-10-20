@@ -5,11 +5,9 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import MermaidContent from "@/components/report/MermaidContent";
 import {
-  AgentStatusList,
   DocumentInfoCards,
   DocumentInsightsHeader,
   DocumentInsightsLayout,
@@ -28,6 +26,55 @@ import type { DocumentSummary, OcrProvider } from "@/lib/common";
 import { useDocumentProgressStream } from "@/lib/events";
 
 type SummaryResult = { kind: "recommended"; value: number } | { kind: "range"; min: number; max: number } | null;
+type ProviderQualityNotes = NonNullable<ProviderRow["qualityNotes"]>;
+
+const parseQualityNotes = (raw?: string | null): ProviderQualityNotes | null => {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const judgeScores = (parsed.judge_scores as Record<string, unknown>) ?? {};
+    const toNumber = (value: unknown, fallback = 0): number => {
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      const coerced = Number(value);
+      return Number.isFinite(coerced) ? coerced : fallback;
+    };
+    const toTextArray = (value: unknown): string[] => {
+      if (Array.isArray(value)) {
+        return value
+          .map((item) => (typeof item === "string" ? item : String(item ?? "")))
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
+      if (typeof value === "string" && value.trim()) {
+        return [value.trim()];
+      }
+      return [];
+    };
+    const fallbackPath = parsed.fallback_path;
+
+    return {
+      judge_grade: String(parsed.judge_grade ?? ""),
+      judge_rationale: String(parsed.judge_rationale ?? ""),
+      judge_scores: {
+        S_read: toNumber(judgeScores.S_read),
+        S_sent: toNumber(judgeScores.S_sent),
+        S_noise: toNumber(judgeScores.S_noise),
+        S_table: toNumber(judgeScores.S_table),
+        S_fig: toNumber(judgeScores.S_fig),
+      },
+      llm_confidence: toNumber(parsed.llm_confidence, 0),
+      llm_reason: String(parsed.llm_reason ?? ""),
+      llm_issues: toTextArray(parsed.llm_issues),
+      fallback_path: Array.isArray(fallbackPath)
+        ? fallbackPath.map((step) => String(step ?? "")).filter(Boolean)
+        : [],
+    };
+  } catch (error) {
+    console.warn("품질 메모 JSON 파싱에 실패했습니다", error);
+    return null;
+  }
+};
 
 const providerDisplay = (provider?: OcrProvider | null, evaluations: ProviderEvaluation[] = []) => {
   if (!provider) return "-";
@@ -47,8 +94,7 @@ const buildProviderRows = (
   evaluations: ProviderEvaluation[],
   currentPage: PagePreview | undefined,
   selectedStrategy?: OcrProvider | null,
-  recommendedStrategy?: OcrProvider | null,
-  qualityNotes?: string | null
+  recommendedStrategy?: OcrProvider | null
 ): ProviderRow[] => {
   if (!evaluations.length) {
     return [];
@@ -59,6 +105,7 @@ const buildProviderRows = (
   return evaluations.map((evaluation) => {
     const providerResult = providerResultsMap.get(evaluation.provider);
     const mergedText = providerResult?.textContent ?? currentPage?.textContent ?? "";
+    const qualityNotes = parseQualityNotes(providerResult?.remarks ?? evaluation.qualityNotes ?? null);
 
     return {
       provider: evaluation.provider,
@@ -73,7 +120,7 @@ const buildProviderRows = (
       isMostAffordable: evaluation.isMostAffordable,
       isSelected: selectedStrategy === evaluation.provider,
       isRecommended: recommendedStrategy === evaluation.provider,
-      qualityNotes: evaluation.qualityNotes ? JSON.parse(evaluation.qualityNotes) : null,
+      qualityNotes,
     };
   });
 };
@@ -198,7 +245,6 @@ const DocumentInsights = () => {
   );
 
   const metricEvaluation = recommendedEvaluation ?? selectedEvaluation ?? null;
-  const metricContextLabel = recommendedEvaluation ? "추천된 API 기준" : selectedEvaluation ? "선택한 API 기준" : null;
 
   const handlePageChange = (direction: "prev" | "next") => {
     if (!pages.length) return;
@@ -218,8 +264,6 @@ const DocumentInsights = () => {
     }
     selectionMutation.mutate(provider);
   };
-
-  const stageEntries = useMemo(() => buildStageEntries(data?.progressStages), [data?.progressStages]);
 
   if (!documentId) {
     return (
@@ -258,7 +302,9 @@ const DocumentInsights = () => {
     );
   }
 
-  const { document, agentStatuses, mermaidChart } = data;
+  const { document, mermaidChart } = data;
+
+  console.log(providerRows);
 
   return (
     <DocumentInsightsLayout>
@@ -282,17 +328,12 @@ const DocumentInsights = () => {
         totalTimeSummary={totalTimeSummary}
         totalCostSummary={totalCostSummary}
         metricEvaluation={metricEvaluation}
-        metricContextLabel={metricContextLabel}
         recommendedDisplayName={providerDisplay(document.recommendedStrategy, providerEvaluationsList)}
         onSelectProvider={handleProviderSelection}
         isMutating={selectionMutation.isPending}
       />
 
       <section className="grid gap-4">
-        {/* <div className="flex flex-col gap-4">
-          <StageProgressCard stages={stageEntries} />
-          <AgentStatusList statuses={agentStatuses} />
-        </div> */}
         <MermaidContent mermaidChart={mermaidChart} />
       </section>
     </DocumentInsightsLayout>
@@ -300,63 +341,3 @@ const DocumentInsights = () => {
 };
 
 export default DocumentInsights;
-
-interface StageEntry {
-  stage: string;
-  status: string;
-}
-
-const stageOrder = ["uploaded", "extraction", "validation", "judge", "report"] as const;
-
-const stageLabelMap: Record<string, string> = {
-  uploaded: "업로드",
-  extraction: "추출",
-  validation: "검증",
-  judge: "평가",
-  report: "리포트",
-};
-
-const stageStatusLabel: Record<string, string> = {
-  pending: "대기",
-  running: "진행 중",
-  completed: "완료",
-  failed: "실패",
-};
-
-const stageStatusClass: Record<string, string> = {
-  pending: "bg-muted text-muted-foreground",
-  running: "bg-primary/10 text-primary",
-  completed: "bg-secondary text-secondary-foreground",
-  failed: "bg-error text-error-foreground",
-};
-
-function buildStageEntries(progressStages: Record<string, string> | undefined): StageEntry[] {
-  const stages = progressStages ?? {};
-  return stageOrder.map((stage) => ({
-    stage,
-    status: stages[stage] ?? "pending",
-  }));
-}
-
-const StageProgressCard = ({ stages }: { stages: StageEntry[] }) => (
-  <Card className="flex flex-col">
-    <CardHeader>
-      <CardTitle className="text-lg font-semibold text-foreground">단계 진행 상황</CardTitle>
-    </CardHeader>
-    <CardContent className="space-y-3">
-      {stages.map((entry) => (
-        <div
-          key={entry.stage}
-          className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
-        >
-          <div>
-            <p className="text-sm font-semibold text-foreground">{stageLabelMap[entry.stage] ?? entry.stage}</p>
-          </div>
-          <Badge variant="outline" className={`px-3 ${stageStatusClass[entry.status] ?? ""}`}>
-            {stageStatusLabel[entry.status] ?? entry.status}
-          </Badge>
-        </div>
-      ))}
-    </CardContent>
-  </Card>
-);

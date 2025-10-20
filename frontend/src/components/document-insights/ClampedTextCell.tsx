@@ -13,15 +13,12 @@ const ClampedTextCell = ({ text }: ClampedTextCellProps) => {
   const { ref, clamped } = useIsClamped<HTMLDivElement>([text, expanded]);
 
   if (!text?.trim()) {
-    return <span className="text-xs text-muted-foreground">결과 없음</span>;
+    return <span className="text-xs text-muted-foreground">-</span>;
   }
 
   return (
-    <div className="flex flex-col items-end gap-2">
-      <div
-        ref={ref}
-        className={cn("whitespace-pre-wrap text-sm text-foreground", expanded ? "" : "line-clamp-3")}
-      >
+    <div className="flex flex-col items-center gap-2">
+      <div ref={ref} className={cn("whitespace-pre-wrap text-sm text-foreground", expanded ? "" : "line-clamp-3")}>
         {text}
       </div>
       {(clamped || expanded) && (
